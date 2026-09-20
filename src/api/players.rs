@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use axum::{Json, Router, routing::get};
+use axum::{
+    Json, Router,
+    routing::{get, post},
+};
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,6 +21,7 @@ use crate::state::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/{id}/players", get(overview))
+        .route("/{id}/player-actions", post(act))
         .route("/{id}/players/{list}", get(read).post(add).delete(remove))
 }
 
@@ -132,7 +136,7 @@ async fn overview(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<impl IntoResponse> {
-    let (_, kind) = located(&identity, &state, id).await?;
+    let (directory, kind) = located(&identity, &state, id).await?;
 
     let rows: Vec<Seen> = sqlx::query_as(
         "SELECT name, uuid, first_seen, last_seen, online FROM server_players
@@ -155,6 +159,36 @@ async fn overview(
         })
         .collect();
 
+    // So a row can say at a glance who is an operator and who is shut out,
+    // rather than making somebody open each list to find out.
+    let mut operators = Vec::new();
+    let mut banned = Vec::new();
+    let mut listed: Vec<String> = Vec::new();
+    for one in lists(&kind) {
+        let rows = load_list(&directory, one.file).await.unwrap_or_default();
+        let names: Vec<String> = rows
+            .iter()
+            .filter_map(|row| {
+                row.get(one.key)
+                    .or_else(|| row.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect();
+        // An address is not somebody, so the banned-ips list stays out of this.
+        if one.key != "ip" {
+            listed.extend(names.iter().cloned());
+        }
+        let lowered = names.iter().map(|name| name.to_lowercase()).collect();
+        match one.slug {
+            "operators" => operators = lowered,
+            "banned" => banned = lowered,
+            _ => {}
+        }
+    }
+    listed.sort_unstable();
+    listed.dedup();
+
     let status = state.statuses.get(id).await;
     Ok(OkJson(json!({
         "online": status.as_ref().map(|status| &status.sample),
@@ -164,6 +198,13 @@ async fn overview(
         "sampled": kind == "minecraft_java",
         "known": known,
         "lists": lists(&kind).iter().map(|one| one.slug).collect::<Vec<_>>(),
+        "operators": operators,
+        "banned": banned,
+        // Everybody any of the lists names, so the page can act on somebody the
+        // server has never seen.
+        "listed": listed,
+        "running": state.supervisor.state(id).await.is_live(),
+        "edition": if kind == "minecraft_bedrock" { "bedrock" } else { "java" },
     })))
 }
 
@@ -206,10 +247,46 @@ async fn add(
         return Err(ApiError::field("value", "Type a name first."));
     }
 
-    let mut rows = load_list(&directory, wanted.file).await?;
+    push_entry(
+        &state,
+        &identity.user.username,
+        &directory,
+        &kind,
+        &wanted,
+        &value,
+        body.reason,
+        body.level,
+    )
+    .await?;
+
+    super::audit(
+        &state,
+        Some(&identity.user),
+        Some(id),
+        &format!("added somebody to {}", wanted.file),
+        Some(&value),
+    )
+    .await;
+    Ok(Done)
+}
+
+/// Writes one row into one of the files, in the shape that file expects.
+/// Shared by the list editor and by the actions a stopped server cannot run.
+#[allow(clippy::too_many_arguments)]
+async fn push_entry(
+    state: &AppState,
+    actor: &str,
+    directory: &std::path::Path,
+    kind: &str,
+    wanted: &Kind,
+    value: &str,
+    reason: Option<String>,
+    level: Option<i64>,
+) -> Result<(), ApiError> {
+    let mut rows = load_list(directory, wanted.file).await?;
     if rows
         .iter()
-        .any(|row| matches(row, wanted.key, &value) || matches(row, "name", &value))
+        .any(|row| matches(row, wanted.key, value) || matches(row, "name", value))
     {
         return Err(ApiError::conflict("They are already on that list."));
     }
@@ -218,7 +295,7 @@ async fn add(
 
     // Java keys its files by UUID, so look one up rather than write a half row.
     if kind == "minecraft_java" && wanted.key == "name" {
-        match profile(&state, &value).await {
+        match profile(state, value).await {
             Some((name, uuid)) => {
                 entry["name"] = json!(name);
                 entry["uuid"] = json!(uuid);
@@ -235,35 +312,43 @@ async fn add(
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
     match wanted.slug {
         "operators" if kind == "minecraft_java" => {
-            entry["level"] = json!(body.level.unwrap_or(4).clamp(1, 4));
+            entry["level"] = json!(level.unwrap_or(4).clamp(1, 4));
             entry["bypassesPlayerLimit"] = json!(false);
         }
         "operators" => entry["permission"] = json!("operator"),
         "allow" if kind == "minecraft_bedrock" => entry["ignoresPlayerLimit"] = json!(false),
         "banned" | "banned-ips" => {
             entry["created"] = json!(now);
-            entry["source"] = json!(identity.user.username);
+            entry["source"] = json!(actor);
             entry["expires"] = json!("forever");
-            entry["reason"] = json!(
-                body.reason
-                    .unwrap_or_else(|| "Banned by an operator".into())
-            );
+            entry["reason"] = json!(reason.unwrap_or_else(|| "Banned by an operator".into()));
         }
         _ => {}
     }
 
     rows.push(entry);
-    save_list(&directory, wanted.file, &rows).await?;
+    save_list(directory, wanted.file, &rows).await
+}
 
-    super::audit(
-        &state,
-        Some(&identity.user),
-        Some(id),
-        &format!("added somebody to {}", wanted.file),
-        Some(&value),
-    )
-    .await;
-    Ok(Done)
+/// Takes a row out, whichever of the ways it can be named the operator used.
+async fn drop_entry(
+    directory: &std::path::Path,
+    wanted: &Kind,
+    value: &str,
+) -> Result<bool, ApiError> {
+    let rows = load_list(directory, wanted.file).await?;
+    let before = rows.len();
+    let kept: Vec<Value> = rows
+        .into_iter()
+        .filter(|row| {
+            !(matches(row, wanted.key, value)
+                || matches(row, "name", value)
+                || matches(row, "uuid", value))
+        })
+        .collect();
+    let removed = kept.len() != before;
+    save_list(directory, wanted.file, &kept).await?;
+    Ok(removed)
 }
 
 #[derive(Deserialize)]
@@ -280,19 +365,8 @@ async fn remove(
     let (directory, kind) = located(&identity, &state, id).await?;
     let wanted = find(&kind, &list).ok_or_else(|| ApiError::not_found("List"))?;
 
-    let rows = load_list(&directory, wanted.file).await?;
     let value = body.value.trim();
-    // A row goes if the operator named it by any of the ways it can be named.
-    let kept: Vec<Value> = rows
-        .into_iter()
-        .filter(|row| {
-            !(matches(row, wanted.key, value)
-                || matches(row, "name", value)
-                || matches(row, "uuid", value))
-        })
-        .collect();
-
-    save_list(&directory, wanted.file, &kept).await?;
+    drop_entry(&directory, &wanted, value).await?;
     super::audit(
         &state,
         Some(&identity.user),
@@ -335,4 +409,405 @@ async fn profile(state: &AppState, name: &str) -> Option<(String, String)> {
     // The API answers without hyphens; the files want them.
     let id = Uuid::parse_str(&found.id).ok()?;
     Some((found.name, id.hyphenated().to_string()))
+}
+
+/// Something to do to one player, from the players page rather than by typing
+/// the command out.
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+enum Wanted {
+    Op {
+        player: String,
+    },
+    Deop {
+        player: String,
+    },
+    Kick {
+        player: String,
+        reason: Option<String>,
+    },
+    Ban {
+        player: String,
+        reason: Option<String>,
+    },
+    Pardon {
+        player: String,
+    },
+    /// Java operator level 1 to 4, or a Bedrock permission name.
+    Rank {
+        player: String,
+        rank: String,
+    },
+    Give {
+        player: String,
+        item: String,
+        count: Option<u32>,
+    },
+    Teleport {
+        player: String,
+        to: Spot,
+    },
+    /// Into chat, as the server.
+    Say {
+        message: String,
+    },
+    /// To one player only.
+    Whisper {
+        player: String,
+        message: String,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Spot {
+    Player(String),
+    Place { x: f64, y: f64, z: f64 },
+}
+
+impl Wanted {
+    /// Whose permission it takes. Managing who may play is one thing; reaching
+    /// into the game to hand out items or move people about is another.
+    fn permission(&self) -> ServerPerm {
+        match self {
+            Wanted::Give { .. }
+            | Wanted::Teleport { .. }
+            | Wanted::Say { .. }
+            | Wanted::Whisper { .. } => ServerPerm::Commands,
+            _ => ServerPerm::Players,
+        }
+    }
+
+    /// Who it is about, for the lists a stopped server has to be edited through.
+    fn subject(&self) -> &str {
+        match self {
+            Wanted::Op { player }
+            | Wanted::Deop { player }
+            | Wanted::Kick { player, .. }
+            | Wanted::Ban { player, .. }
+            | Wanted::Pardon { player }
+            | Wanted::Rank { player, .. }
+            | Wanted::Give { player, .. }
+            | Wanted::Teleport { player, .. }
+            | Wanted::Whisper { player, .. } => player.trim(),
+            Wanted::Say { .. } => "",
+        }
+    }
+}
+
+/// Commands leave over stdin as one line, so a line break inside an argument
+/// would be a second command. Nothing with a control character gets through.
+fn safe(field: &'static str, value: &str) -> Result<String, ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ApiError::field(field, "This cannot be empty."));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(ApiError::field(field, "Take the line breaks out first."));
+    }
+    Ok(value.to_string())
+}
+
+/// Minecraft wants a name with a space in it quoted.
+fn argument(value: &str) -> String {
+    if value.contains(char::is_whitespace) || value.contains('"') {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        value.to_string()
+    }
+}
+
+async fn act(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<Wanted>,
+) -> ApiResult<impl IntoResponse> {
+    identity
+        .require_server(&state.db, id, body.permission())
+        .await?;
+    let row = super::servers::load(&state, id).await?;
+    let directory = PathBuf::from(&row.directory);
+    let kind = row.kind.as_str();
+    let bedrock = kind == "minecraft_bedrock";
+    let running = state.supervisor.state(id).await.is_live();
+
+    // What to run in game, and what to write to a file when the server is down.
+    // Some of these have no offline half: you cannot kick somebody who is not on.
+    let (command, offline): (String, Offline) = match &body {
+        Wanted::Op { player } => {
+            let name = safe("player", player)?;
+            (
+                format!("op {}", argument(&name)),
+                Offline::Join("operators"),
+            )
+        }
+        Wanted::Deop { player } => {
+            let name = safe("player", player)?;
+            (
+                format!("deop {}", argument(&name)),
+                Offline::Leave("operators"),
+            )
+        }
+        Wanted::Kick { player, reason } => {
+            let name = safe("player", player)?;
+            let reason = match reason {
+                Some(text) if !text.trim().is_empty() => format!(" {}", safe("reason", text)?),
+                _ => String::new(),
+            };
+            (format!("kick {}{reason}", argument(&name)), Offline::None)
+        }
+        Wanted::Ban { player, reason } => {
+            if bedrock {
+                return Err(ApiError::conflict(
+                    "Bedrock has no ban command. Take them off the allow list instead.",
+                ));
+            }
+            let name = safe("player", player)?;
+            let text = match reason {
+                Some(text) if !text.trim().is_empty() => Some(safe("reason", text)?),
+                _ => None,
+            };
+            let tail = text.as_deref().map(|t| format!(" {t}")).unwrap_or_default();
+            (format!("ban {}{tail}", argument(&name)), Offline::Ban(text))
+        }
+        Wanted::Pardon { player } => {
+            if bedrock {
+                return Err(ApiError::conflict("Bedrock keeps no ban list."));
+            }
+            let name = safe("player", player)?;
+            (
+                format!("pardon {}", argument(&name)),
+                Offline::Leave("banned"),
+            )
+        }
+        Wanted::Rank { player, rank } => {
+            // Neither edition can change a level in game: Java reads ops.json at
+            // start and Bedrock has no permission command. The file is the only
+            // way, and it lands on the next start.
+            let name = safe("player", player)?;
+            let rank = safe("rank", rank)?;
+            let changed = rank_in_file(&state, &directory, kind, &name, &rank).await?;
+            super::audit(
+                &state,
+                Some(&identity.user),
+                Some(id),
+                "changed a player's rank",
+                Some(&format!("{name} → {rank}")),
+            )
+            .await;
+            return Ok(OkJson(json!({
+                "via": "file",
+                "ran": changed,
+                "restart_required": running,
+            })));
+        }
+        Wanted::Give {
+            player,
+            item,
+            count,
+        } => {
+            let name = safe("player", player)?;
+            let item = safe("item", item)?;
+            if !item
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.' | '-'))
+            {
+                return Err(ApiError::field("item", "That is not an item id."));
+            }
+            let count = count.unwrap_or(1).clamp(1, 6400);
+            (
+                format!("give {} {item} {count}", argument(&name)),
+                Offline::None,
+            )
+        }
+        Wanted::Teleport { player, to } => {
+            let name = safe("player", player)?;
+            let target = match to {
+                Spot::Player(other) => argument(&safe("to", other)?),
+                Spot::Place { x, y, z } => {
+                    for value in [x, y, z] {
+                        if !value.is_finite() || value.abs() > 30_000_000.0 {
+                            return Err(ApiError::field("to", "That is outside the world."));
+                        }
+                    }
+                    format!("{x} {y} {z}")
+                }
+            };
+            (format!("tp {} {target}", argument(&name)), Offline::None)
+        }
+        Wanted::Say { message } => (format!("say {}", safe("message", message)?), Offline::None),
+        Wanted::Whisper { player, message } => {
+            let name = safe("player", player)?;
+            (
+                format!("tell {} {}", argument(&name), safe("message", message)?),
+                Offline::None,
+            )
+        }
+    };
+
+    if !running {
+        if matches!(offline, Offline::None) {
+            return Err(ApiError::conflict(
+                "The server has to be running for that one.",
+            ));
+        }
+        let done = apply_offline(
+            &state,
+            &identity.user.username,
+            &directory,
+            kind,
+            body.subject(),
+            offline,
+        )
+        .await?;
+        super::audit(
+            &state,
+            Some(&identity.user),
+            Some(id),
+            "changed a player list while the server was down",
+            Some(&command),
+        )
+        .await;
+        return Ok(OkJson(json!({
+            "via": "file",
+            "ran": done,
+            "restart_required": false,
+        })));
+    }
+
+    let outcome = state
+        .supervisor
+        .run_command(id, &command)
+        .await
+        .map_err(|error| ApiError::conflict(error.to_string()))?;
+    super::audit(
+        &state,
+        Some(&identity.user),
+        Some(id),
+        "acted on a player",
+        Some(&command),
+    )
+    .await;
+    Ok(OkJson(json!({
+        "via": outcome.via,
+        "ran": command,
+        "output": outcome.output,
+        "restart_required": false,
+    })))
+}
+
+/// What the same action does when there is no server to talk to.
+enum Offline {
+    None,
+    Join(&'static str),
+    Leave(&'static str),
+    Ban(Option<String>),
+}
+
+async fn apply_offline(
+    state: &AppState,
+    actor: &str,
+    directory: &std::path::Path,
+    kind: &str,
+    player: &str,
+    offline: Offline,
+) -> Result<String, ApiError> {
+    let list = |slug| {
+        find(kind, slug).ok_or_else(|| {
+            ApiError::conflict(
+                "This edition does not keep that list, so there is nothing to write.",
+            )
+        })
+    };
+
+    match offline {
+        Offline::None => Ok(String::new()),
+        Offline::Leave(slug) => {
+            let wanted = list(slug)?;
+            drop_entry(directory, &wanted, player).await?;
+            Ok(format!("took {player} out of {}", wanted.file))
+        }
+        Offline::Join(slug) => {
+            let wanted = list(slug)?;
+            push_entry(state, actor, directory, kind, &wanted, player, None, None).await?;
+            Ok(format!("wrote {player} into {}", wanted.file))
+        }
+        Offline::Ban(reason) => {
+            let wanted = list("banned")?;
+            push_entry(state, actor, directory, kind, &wanted, player, reason, None).await?;
+            Ok(format!("wrote {player} into {}", wanted.file))
+        }
+    }
+}
+
+/// Sets a Java operator level or a Bedrock permission, in the file, since
+/// neither edition will take it as a command.
+async fn rank_in_file(
+    state: &AppState,
+    directory: &std::path::Path,
+    kind: &str,
+    name: &str,
+    rank: &str,
+) -> Result<String, ApiError> {
+    let bedrock = kind == "minecraft_bedrock";
+    let wanted = find(kind, "operators").ok_or_else(|| ApiError::not_found("List"))?;
+
+    let value: Value = if bedrock {
+        match rank {
+            "visitor" | "member" | "operator" => json!(rank),
+            _ => {
+                return Err(ApiError::field(
+                    "rank",
+                    "Bedrock knows visitor, member and operator.",
+                ));
+            }
+        }
+    } else {
+        match rank.parse::<i64>() {
+            Ok(level) if (1..=4).contains(&level) => json!(level),
+            _ => return Err(ApiError::field("rank", "Java levels run from 1 to 4.")),
+        }
+    };
+    let field = if bedrock { "permission" } else { "level" };
+
+    let mut rows = load_list(directory, wanted.file).await?;
+    let found = rows
+        .iter_mut()
+        .find(|row| matches(row, wanted.key, name) || matches(row, "name", name));
+
+    match found {
+        Some(row) => {
+            row[field] = value;
+        }
+        None => {
+            // Not on the list yet: put them on it at the rank asked for.
+            push_entry(
+                state,
+                "panel",
+                directory,
+                kind,
+                &wanted,
+                name,
+                None,
+                // Only Java carries a numeric level here.
+                if bedrock { None } else { value.as_i64() },
+            )
+            .await?;
+            if bedrock {
+                let mut again = load_list(directory, wanted.file).await?;
+                if let Some(row) = again
+                    .iter_mut()
+                    .find(|row| matches(row, wanted.key, name) || matches(row, "name", name))
+                {
+                    row[field] = value;
+                }
+                save_list(directory, wanted.file, &again).await?;
+            }
+            return Ok(format!("added {name} to {}", wanted.file));
+        }
+    }
+
+    save_list(directory, wanted.file, &rows).await?;
+    Ok(format!("set {field} in {}", wanted.file))
 }

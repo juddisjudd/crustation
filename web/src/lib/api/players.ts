@@ -21,6 +21,13 @@ export interface PlayerOverview {
 	sampled: boolean;
 	known: KnownPlayer[];
 	lists: string[];
+	/** Lower-cased names, so a row can show who holds what. */
+	operators: string[];
+	banned: string[];
+	/** Everybody named on any list, so the page can act on somebody unseen. */
+	listed: string[];
+	running: boolean;
+	edition: 'java' | 'bedrock';
 }
 
 export interface PlayerList {
@@ -30,6 +37,28 @@ export interface PlayerList {
 	key: string;
 	entries: Record<string, unknown>[];
 }
+
+export interface Acted {
+	/** "rcon", "stdin", or "file" when the server was down. */
+	via: string;
+	ran: string;
+	output?: string | null;
+	restart_required: boolean;
+}
+
+export type Spot = string | { x: number; y: number; z: number };
+
+export type PlayerAction =
+	| { action: 'op'; player: string }
+	| { action: 'deop'; player: string }
+	| { action: 'kick'; player: string; reason?: string }
+	| { action: 'ban'; player: string; reason?: string }
+	| { action: 'pardon'; player: string }
+	| { action: 'rank'; player: string; rank: string }
+	| { action: 'give'; player: string; item: string; count?: number }
+	| { action: 'teleport'; player: string; to: Spot }
+	| { action: 'say'; message: string }
+	| { action: 'whisper'; player: string; message: string };
 
 const base = (serverId: string) => `/servers/${serverId}/players`;
 
@@ -47,6 +76,9 @@ export const addToList = (
 
 export const removeFromList = (serverId: string, list: string, value: string) =>
 	api.delete(`${base(serverId)}/${list}`, { value });
+
+export const actOnPlayer = (serverId: string, action: PlayerAction) =>
+	api.post<Acted>(`/servers/${serverId}/player-actions`, action);
 
 /** A head render, from the community avatar service Minecraft panels use. */
 export const headUrl = (player: { uuid?: string | null; name: string }) =>
