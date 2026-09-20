@@ -6,7 +6,8 @@ use serde_json::json;
 use sysinfo::Disks;
 
 use crate::auth::Identity;
-use crate::error::{ApiResult, Ok as OkJson};
+use crate::error::{ApiError, ApiResult, Ok as OkJson};
+use crate::perms::Global;
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -14,6 +15,57 @@ pub fn routes() -> Router<AppState> {
         .route("/stats", get(stats))
         .route("/audit", get(audit))
         .route("/java", get(java))
+        .route("/mcp", get(mcp).patch(set_mcp))
+}
+
+/// What the MCP screen shows: whether the endpoint answers, where a client
+/// should point, and what a key would be able to do once it got there.
+async fn mcp(identity: Identity, State(state): State<AppState>) -> ApiResult<impl IntoResponse> {
+    identity.require_global(Global::Admin)?;
+    Ok(OkJson(json!({
+        "enabled": state.mcp_on(),
+        "config_default": state.config.panel.mcp_enabled,
+        // Empty when nothing is configured, and the interface falls back to the
+        // address the browser is already using, which is right often enough.
+        "public_url": state.config.http.public_url,
+        "tools": crate::mcp::described(),
+        "resources": [
+            "crustation://servers",
+            "crustation://servers/{id}/details",
+            "crustation://servers/{id}/console",
+            "crustation://servers/{id}/properties",
+        ],
+    })))
+}
+
+#[derive(Deserialize)]
+struct SetMcp {
+    enabled: bool,
+}
+
+async fn set_mcp(
+    identity: Identity,
+    State(state): State<AppState>,
+    axum::Json(body): axum::Json<SetMcp>,
+) -> ApiResult<impl IntoResponse> {
+    identity.require_global(Global::Admin)?;
+    state
+        .set_mcp(body.enabled)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    super::audit(
+        &state,
+        Some(&identity.user),
+        None,
+        match body.enabled {
+            true => "turned the MCP endpoint on",
+            false => "turned the MCP endpoint off",
+        },
+        None,
+    )
+    .await;
+    Ok(OkJson(json!({ "enabled": state.mcp_on() })))
 }
 
 async fn stats(_identity: Identity, State(state): State<AppState>) -> ApiResult<impl IntoResponse> {

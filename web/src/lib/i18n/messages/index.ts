@@ -7,7 +7,9 @@ import { create } from './create.ts';
 import { dashboard } from './dashboard.ts';
 import { files } from './files.ts';
 import { map } from './map.ts';
+import { mcp } from './mcp.ts';
 import { nav } from './nav.ts';
+import { panel } from './panel.ts';
 import { players } from './players.ts';
 import { server } from './server.ts';
 import { settings } from './settings.ts';
@@ -22,7 +24,9 @@ export const en = {
 	dashboard,
 	files,
 	map,
+	mcp,
 	nav,
+	panel,
 	players,
 	server,
 	settings

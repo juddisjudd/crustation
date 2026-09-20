@@ -2,6 +2,7 @@
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import ShieldIcon from '@lucide/svelte/icons/shield';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import { page } from '$app/state';
@@ -108,7 +109,7 @@
 				{/each}
 			</Sidebar.Menu>
 		</Sidebar.Group>
-		{#if session.can('MANAGE_USERS') || session.can('MANAGE_ROLES')}
+		{#if session.can('MANAGE_USERS') || session.can('MANAGE_ROLES') || session.superuser}
 			<Sidebar.Group>
 				<Sidebar.GroupLabel>{t('nav.groupAdmin')}</Sidebar.GroupLabel>
 				<Sidebar.Menu>
@@ -131,6 +132,18 @@
 								{#snippet child({ props })}
 									<a {href} {...props}>
 										<ShieldIcon /><span>{t('nav.roles')}</span>
+									</a>
+								{/snippet}
+							</Sidebar.MenuButton>
+						</Sidebar.MenuItem>
+					{/if}
+					{#if session.superuser}
+						{@const href = resolve('/settings')}
+						<Sidebar.MenuItem>
+							<Sidebar.MenuButton isActive={isActive(href)} tooltipContent={t('nav.settings')}>
+								{#snippet child({ props })}
+									<a {href} {...props}>
+										<SettingsIcon /><span>{t('nav.settings')}</span>
 									</a>
 								{/snippet}
 							</Sidebar.MenuButton>

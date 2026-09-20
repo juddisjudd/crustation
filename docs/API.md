@@ -308,7 +308,7 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | POST             | `/servers/{id}/files/upload`                             | Streamed upload, `?path=` for the folder. Progress is an event.                                                                                                                                                                                          |
 | GET              | `/servers/{id}/files/download?path=`                     | Streams the file, or a zip of a folder.                                                                                                                                                                                                                  |
 | POST             | `/servers/{id}/files/extract`                            | `{path}` to unzip in place.                                                                                                                                                                                                                              |
-| GET              | `/servers/{id}/packs`                                    | What is installed: `{packs: [{name, sort, path, uuid, version, activated}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
+| GET              | `/servers/{id}/packs`                                    | What is installed: `{packs: [{name, sort, path, uuid, version, activated, stock}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
 | POST             | `/servers/{id}/packs`                                    | `{path, activate, world, use_world}` installs an add-on already in the server folder. Returns `{installed, world, level_name, restart_required}`. Requires `FILES`. |
 | POST             | `/servers/{id}/packs/upload?name=&activate=&world=&use_world=` | The archive itself as the body, unpacked without ever landing in the server folder. Same reply. Requires `FILES`. |
 | GET              | `/servers/{id}/worlds`                                   | `{worlds: [{name, folder, path}], level_name}`. A world is a folder holding a `level.dat`. Requires `FILES`. |
@@ -339,6 +339,12 @@ nested inside it, and both shapes are handled.
   The list is **added to, never replaced**: the file is read, the new pack appended, and every
   pack already named there kept. Installing the same pack again updates its row in place rather
   than adding a second one.
+- `stock` marks a pack the Bedrock server unpacked for itself rather than one anybody chose.
+  A dedicated server ships dozens — `vanilla`, `editor`, the two script libraries, and
+  `chemistry` once per game version — which bury the one pack somebody added, so the interface
+  folds them away behind a switch. It is judged by the folder name, with the version suffix
+  taken off, so `chemistry_1.20.50` is the 1.20.50 copy of `chemistry`. Nothing is hidden from
+  the file browser and nothing is deleted; it only decides what the add-ons tab shows first.
 - If that file exists but cannot be read as a list, the panel refuses to touch it rather than
   writing a fresh one over the top, which would switch off every pack the world already loads.
   The pack's own files still land, and it comes back `activated: false` so the interface can say
@@ -434,6 +440,7 @@ into the game.
 | GET/PATCH | `/panel/settings`                                              | Panel configuration, grouped by section.                     |
 | GET       | `/panel/audit?limit=&before=`                                  | Audit entries, newest first.                                 |
 | GET       | `/panel/java`                                                  | Java runtimes found on the host.                             |
+| GET/PATCH | `/panel/mcp`                                                   | The MCP endpoint: `{enabled, config_default, public_url, tools, resources}`, and `{enabled}` to switch it. Administrator only. |
 | GET/POST  | `/users`, GET/PATCH/DELETE `/users/{id}`                       | User administration.                                         |
 | GET/POST  | `/roles`, GET/PATCH/DELETE `/roles/{id}`                       | Roles and their per-server permissions.                      |
 | GET/POST  | `/users/{id}/api-keys`, DELETE `/users/{id}/api-keys/{key_id}` | API keys. The token is shown once, on create.                |
@@ -472,8 +479,15 @@ claude mcp add --transport http crustation https://panel.example.com/mcp \
   like any other, marked as having come over MCP.
 - Sessions are not kept. Each request stands alone, which is what the `2026-07-28` revision of
   the protocol expects.
-- It can be switched off with `panel.mcp_enabled = false` in `crustation.toml`, or
-  `CRUSTATION_MCP_ENABLED=false`.
+- There is a screen for it, under **Administration → Settings**, which an administrator can
+  reach. It shows whether the endpoint answers, the address and the `claude mcp add` line to
+  paste, and every tool beside the permission it will ask for — read from the router itself, so
+  the page cannot drift from what the server actually serves. A test keeps the permission column
+  honest: a tool added without saying what it costs fails the build.
+- The switch on that screen takes at once and is remembered. `panel.mcp_enabled` in
+  `crustation.toml` (or `CRUSTATION_MCP_ENABLED`) decides only what a panel with nothing stored
+  does on a fresh start; after that the stored answer wins. While it is off the endpoint answers
+  `503` and nothing reaches the tools.
 
 | Tool              | Takes                       | Needs      |
 | ----------------- | --------------------------- | ---------- |

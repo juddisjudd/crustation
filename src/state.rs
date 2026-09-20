@@ -22,6 +22,10 @@ pub struct Inner {
     pub bridges: crate::bridge::Bridges,
     /// Signing key for session cookies, generated once and kept in the database.
     pub session_secret: Vec<u8>,
+    /// Whether `/mcp` answers. The config file gives the first answer; after
+    /// that the settings table does, so the switch on the panel screen takes
+    /// without a restart.
+    pub mcp_enabled: std::sync::atomic::AtomicBool,
     pub started_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -31,6 +35,10 @@ pub struct AppState(Arc<Inner>);
 impl AppState {
     pub async fn new(config: Config, db: Db) -> Result<Self> {
         let session_secret = load_or_create_secret(&db).await?;
+        let mcp_enabled = crate::db::setting(&db, MCP_SETTING)
+            .await?
+            .map(|value| value == "true")
+            .unwrap_or(config.panel.mcp_enabled);
         let events = Events::new();
         let supervisor = Supervisor::new(config.clone(), db.clone(), events.clone());
         Ok(Self(Arc::new(Inner {
@@ -43,10 +51,26 @@ impl AppState {
             statuses: Statuses::default(),
             bridges: crate::bridge::Bridges::default(),
             session_secret,
+            mcp_enabled: std::sync::atomic::AtomicBool::new(mcp_enabled),
             started_at: chrono::Utc::now(),
         })))
     }
+
+    pub fn mcp_on(&self) -> bool {
+        self.mcp_enabled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Turns the MCP endpoint on or off and remembers the answer, so a restart
+    /// keeps it rather than falling back to the config file.
+    pub async fn set_mcp(&self, on: bool) -> Result<()> {
+        crate::db::set_setting(&self.db, MCP_SETTING, if on { "true" } else { "false" }).await?;
+        self.mcp_enabled
+            .store(on, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
 }
+
+const MCP_SETTING: &str = "mcp_enabled";
 
 impl std::ops::Deref for AppState {
     type Target = Inner;

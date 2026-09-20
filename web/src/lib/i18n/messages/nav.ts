@@ -4,6 +4,7 @@ export const nav = {
 	newServer: 'New server',
 	users: 'Users',
 	roles: 'Roles',
+	settings: 'Settings',
 	groupAdmin: 'Administration',
 	logout: 'Sign out',
 	theme: 'Theme',

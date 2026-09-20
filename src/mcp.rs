@@ -72,6 +72,14 @@ async fn authenticate(
     mut request: axum::extract::Request,
     next: Next,
 ) -> Response {
+    if !state.mcp_on() {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "The MCP endpoint is switched off for this panel.",
+        )
+            .into_response();
+    }
+
     let token = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -689,6 +697,49 @@ impl Crustation {
     }
 }
 
+/// What each tool needs before it will answer, for the panel screen to show.
+/// The names are checked against the router itself in the tests below, so a tool
+/// cannot be added without saying what it costs.
+pub fn catalogue() -> Vec<(&'static str, Option<ServerPerm>)> {
+    vec![
+        ("list_servers", None),
+        ("server_details", Some(ServerPerm::Logs)),
+        ("server_action", Some(ServerPerm::Commands)),
+        ("send_command", Some(ServerPerm::Commands)),
+        ("read_console", Some(ServerPerm::Console)),
+        ("list_players", Some(ServerPerm::Players)),
+        ("read_properties", Some(ServerPerm::Config)),
+        ("set_property", Some(ServerPerm::Config)),
+        ("list_files", Some(ServerPerm::Files)),
+        ("read_file", Some(ServerPerm::Files)),
+        ("list_packs", Some(ServerPerm::Files)),
+        ("panel_overview", None),
+    ]
+}
+
+/// The tools as the panel screen lists them: the name and description the
+/// router itself reports, beside the permission the call will ask for.
+pub fn described() -> Vec<serde_json::Value> {
+    let needs: std::collections::BTreeMap<&str, Option<ServerPerm>> =
+        catalogue().into_iter().collect();
+
+    let mut tools: Vec<_> = Crustation::tool_router()
+        .list_all()
+        .into_iter()
+        .map(|tool| {
+            serde_json::json!({
+                "name": tool.name,
+                "description": tool.description,
+                "permission": needs
+                    .get(tool.name.as_ref())
+                    .and_then(|found| found.map(|one| one.as_str())),
+            })
+        })
+        .collect();
+    tools.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+    tools
+}
+
 /// `crustation://servers/<id>/<what>`, or `crustation://servers` for the list.
 fn parse_uri(uri: &str) -> Option<(String, &str)> {
     let rest = uri.strip_prefix("crustation://servers/")?;
@@ -875,6 +926,38 @@ mod tests {
             parse_uri("crustation://servers/abc/console"),
             Some(("abc".to_string(), "console"))
         );
+    }
+
+    #[test]
+    fn the_catalogue_names_every_tool_and_no_others() {
+        let mut router: Vec<String> = Crustation::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        let mut listed: Vec<String> = catalogue()
+            .into_iter()
+            .map(|(name, _)| name.to_string())
+            .collect();
+        router.sort();
+        listed.sort();
+        assert_eq!(
+            router, listed,
+            "a tool was added or renamed without saying what permission it needs"
+        );
+    }
+
+    #[test]
+    fn every_tool_is_described_for_the_panel_screen() {
+        for tool in described() {
+            assert!(
+                tool["description"]
+                    .as_str()
+                    .is_some_and(|one| !one.is_empty()),
+                "{} has nothing to tell the operator it does",
+                tool["name"]
+            );
+        }
     }
 
     #[test]
