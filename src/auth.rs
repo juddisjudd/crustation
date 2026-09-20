@@ -290,6 +290,18 @@ async fn identity_from_api_key(state: &AppState, token: &str) -> Result<Identity
     Ok(identity)
 }
 
+/// A fresh API token. Only its hash is kept, so this is the one time anybody
+/// can read it.
+pub fn generate_token() -> String {
+    use base64::Engine as _;
+    let mut bytes = [0u8; 32];
+    rand::fill(&mut bytes[..]);
+    format!(
+        "cru_{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    )
+}
+
 pub fn sha256_hex(value: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();

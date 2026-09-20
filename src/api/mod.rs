@@ -3,7 +3,9 @@ pub mod files;
 pub mod panel;
 pub mod properties;
 pub mod providers;
+pub mod roles;
 pub mod servers;
+pub mod users;
 pub mod ws;
 
 use axum::Router;
@@ -20,6 +22,8 @@ pub fn router() -> Router<AppState> {
         .nest("/panel", panel::routes())
         .nest("/providers", providers::routes())
         .nest("/properties", properties::routes())
+        .nest("/users", users::routes())
+        .nest("/roles", roles::routes())
         .route("/health", get(health))
 }
 
