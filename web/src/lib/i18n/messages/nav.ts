@@ -26,6 +26,8 @@ export const nav = {
 		console: 'Console',
 		settings: 'Settings',
 		files: 'Files',
+		chat: 'Chat',
+		map: 'Map',
 		players: 'Players'
 	}
 } as const;
