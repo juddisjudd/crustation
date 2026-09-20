@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bridge;
 pub mod files;
 pub mod macros;
 pub mod map;
@@ -28,6 +29,7 @@ pub fn router() -> Router<AppState> {
         .nest("/properties", properties::routes())
         .nest("/users", users::routes())
         .nest("/roles", roles::routes())
+        .nest("/bridge", bridge::public_routes())
         .route("/health", get(health))
 }
 

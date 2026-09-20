@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card/index.js';
 	import Meter from '$lib/components/meter.svelte';
+	import AddonCard from '$lib/components/addon-card.svelte';
 	import MotdEditor from '$lib/components/motd-editor.svelte';
 	import { servers, statusLabel } from '$lib/servers.svelte';
 	import { bytes, dateTime, duration, kindLabel, parseTime, percent } from '$lib/format';
@@ -127,14 +128,28 @@
 			</Card.Content>
 		</Card.Root>
 
-		<Card.Root>
-			<Card.Header>
-				<Card.Title>{t('server.motd.title')}</Card.Title>
-				<Card.Description>{t('server.motd.hint')}</Card.Description>
-			</Card.Header>
-			<Card.Content>
-				<MotdEditor serverId={server.id} {edition} canEdit={canConfigure} />
-			</Card.Content>
-		</Card.Root>
+		<div class="space-y-6">
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>{t('server.motd.title')}</Card.Title>
+					<Card.Description>{t('server.motd.hint')}</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<MotdEditor serverId={server.id} {edition} canEdit={canConfigure} />
+				</Card.Content>
+			</Card.Root>
+
+			{#if edition === 'bedrock'}
+				<Card.Root>
+					<Card.Header>
+						<Card.Title>{t('addon.title')}</Card.Title>
+						<Card.Description>{t('addon.hint')}</Card.Description>
+					</Card.Header>
+					<Card.Content>
+						<AddonCard serverId={server.id} canEdit={canConfigure} />
+					</Card.Content>
+				</Card.Root>
+			{/if}
+		</div>
 	</div>
 </div>

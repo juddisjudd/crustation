@@ -1,4 +1,5 @@
 import { admin } from './admin.ts';
+import { addon } from './addon.ts';
 import { chat } from './chat.ts';
 import { common } from './common.ts';
 import { create } from './create.ts';
@@ -12,6 +13,7 @@ import { settings } from './settings.ts';
 
 export const en = {
 	admin,
+	addon,
 	chat,
 	common,
 	create,

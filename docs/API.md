@@ -310,6 +310,7 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | POST             | `/servers/{id}/files/extract`                            | `{path}` to unzip in place.                                                                                                                                                                                                                              |
 | GET              | `/servers/{id}/packs`                                    | What is installed: `{packs: [{name, sort, path, uuid, version, activated}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
 | POST             | `/servers/{id}/packs`                                    | `{path, activate}` installs an add-on already in the server folder. Returns `{installed, restart_required}`. Requires `FILES`. |
+| GET/POST/DELETE  | `/servers/{id}/bridge`                                   | The Crustation add-on on a Bedrock server. `GET` needs `CONSOLE`, the rest `CONFIG`. Java answers `409 CONFLICT`: it has RCON. |
 | GET/POST         | `/servers/{id}/macros`                                   | Saved commands as buttons: `{id, label, command, position}`. Reading needs `COMMANDS`, changing needs `CONFIG`.                                                                                                                                          |
 | PATCH/DELETE     | `/servers/{id}/macros/{macro_id}`                        | One saved command.                                                                                                                                                                                                                                       |
 | GET/POST         | `/servers/{id}/backups`                                  | Backup configs: name, destination, retention, excludes, compression, whether to stop the server.                                                                                                                                                        |
@@ -350,6 +351,55 @@ should be downloaded instead. A write may carry the `modified` it last saw, and 
 file changed underneath it. Downloading a folder streams a zip built on the servers volume rather
 than inside the server, so it never shows up in the operator's own listing.
 
+
+## The Bedrock add-on
+
+Bedrock has no RCON and writes no chat to its console, so the panel can see almost nothing of
+what happens on one. `POST /servers/{id}/bridge` installs a behaviour pack that tells it:
+
+- the pack goes in `behavior_packs/crustation`,
+- the world is told to load it in `world_behavior_packs.json`,
+- `@minecraft/server-net` and `@minecraft/server-admin` are added to
+  `config/default/permissions.json`, which the game will not hand out otherwise,
+- the panel address and a fresh token are written to `config/<script-uuid>/variables.json`,
+- and the Beta APIs experiment is turned on in the world, since the network module is gated on
+  it. That means reading and writing `level.dat`, which is little-endian NBT.
+
+`panel_url` is where the **game server** reaches the panel, not where your browser does. It
+defaults to `public_url` if one is set, and to loopback otherwise, which is right whenever the
+panel and the server share a container. The reply reports `beta_apis_turned_on` and
+`world_missing`; a server that has never started has no world yet, so install again after the
+first start.
+
+`GET` reports `{installed, connected, last_seen, beta_apis, world, suggested_url}`. `connected`
+means heard from in the last six seconds. `DELETE` removes the pack, takes it out of every
+world's list rather than only the running one, and revokes the token.
+
+| Method | Path                    | Purpose                                                                                      |
+| ------ | ----------------------- | -------------------------------------------------------------------------------------------- |
+| POST   | `/bridge/{token}`       | What the add-on itself calls. `{events, players}` in, nothing out. Not nested under `/servers` and takes no session: the token is the whole credential. An unknown one answers `404`. |
+
+```json
+{
+  "events": [
+    { "kind": "join", "player": "ohitsjudd" },
+    { "kind": "chat", "player": "ohitsjudd", "message": "hello" },
+    { "kind": "leave", "player": "ZoooDuck" },
+    { "kind": "death", "player": "ZoooDuck", "message": "ZoooDuck fell from a high place" },
+    { "kind": "note", "message": "anything else worth a console line" }
+  ],
+  "players": [
+    { "name": "ohitsjudd", "x": 100.5, "y": 64, "z": -200.25, "dimension": "minecraft:overworld" }
+  ]
+}
+```
+
+Events become console lines written the way the Java server writes the same thing, so the chat
+tab, the search and the colouring all suit them already without knowing where they came from.
+Positions are held in memory only and feed `GET /servers/{id}/positions`, which is why the map
+tab works on Bedrock at all. The channel is one-way on purpose: commands already reach a Bedrock
+server on its own standard input, so there is nothing to gain from letting the panel push work
+into the game.
 ## Panel
 
 | Method    | Path                                                           | Purpose                                                      |

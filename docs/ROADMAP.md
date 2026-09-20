@@ -81,6 +81,18 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   for the world. A .mcaddon that holds .mcpack files is opened in turn. Java datapacks arrive
   the same way, through their pack.mcmeta.
 - Editing a file is its own view with a way back, rather than a panel wedged under the browser.
+- Worlds arrive the same way. A .mcworld goes to worlds/<name> on Bedrock, a zipped Java world
+  to its own folder beside the jar, the name taken from levelname.txt where there is one, and
+  level-name is pointed at it.
+- The Bedrock add-on. Bedrock has no RCON and writes no chat to its console, so the panel now
+  ships a behaviour pack that posts chat, arrivals, departures, deaths and where everybody is
+  standing back to the panel every second. One button installs the pack, tells the world to
+  load it, adds the two script modules to the allow list and turns the Beta APIs experiment on
+  in level.dat, which meant learning to read and write Bedrock's little-endian NBT. With it on,
+  the chat tab and the live map work on Bedrock as they do on Java. The channel only ever
+  sends: commands already reach a Bedrock server on its standard input.
+- Xbox ids are learned from the console. Bedrock names one when somebody connects and at no
+  other time, so the panel writes it down, and can then key permissions.json properly.
 
 ## Next
 
