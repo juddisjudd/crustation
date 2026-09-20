@@ -301,9 +301,9 @@ const JAVA: &[Known] = &[
     Known {
         key: "white-list",
         label: "Allow list only",
-        help: "Only players on the list may join.",
+        help: "On by default. Nobody can join until they are on the list.",
         group: "Players",
-        default: "false",
+        default: "true",
         kind: Kind::Flag,
     },
     Known {
@@ -404,9 +404,9 @@ const BEDROCK: &[Known] = &[
     Known {
         key: "allow-list",
         label: "Allow list only",
-        help: "Only players on the list may join.",
+        help: "On by default. Nobody can join until they are on the list.",
         group: "Players",
-        default: "false",
+        default: "true",
         kind: Kind::Flag,
     },
     Known {
@@ -582,6 +582,20 @@ mod tests {
         let bedrock = known("minecraft_bedrock", "gamemode").expect("known");
         assert!(check(bedrock, "spectator").is_err());
         assert!(check(bedrock, "adventure").is_ok());
+    }
+
+    /// Both editions ship with the list on, which is the opposite of what people
+    /// assume, so the form has to show it that way or the first join fails.
+    #[test]
+    fn the_allow_list_starts_on_in_both_editions() {
+        assert_eq!(
+            known("minecraft_java", "white-list").unwrap().default,
+            "true"
+        );
+        assert_eq!(
+            known("minecraft_bedrock", "allow-list").unwrap().default,
+            "true"
+        );
     }
 
     /// Every default has to satisfy the rule the panel enforces for that key.
