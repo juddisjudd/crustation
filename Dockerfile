@@ -32,6 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CRUSTATION_BACKUPS_DIR=/backups \
     CRUSTATION_PORT=8080 \
     CRUSTATION_WEB_DIR=/app/web \
+    CRUSTATION_ADDONS_DIR=/app/addons \
     CRUSTATION_DOCKER=1 \
     PUID=99 \
     PGID=100
@@ -46,6 +47,7 @@ RUN apt-get update \
 
 COPY --from=panel /src/target/release/crustation /usr/local/bin/crustation
 COPY --from=web /web/build /app/web
+COPY addons /app/addons
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

@@ -18,6 +18,8 @@ pub struct Inner {
     pub catalogue: Catalogue,
     /// What each server last said about itself over the wire.
     pub statuses: Statuses,
+    /// Bedrock servers running the add-on, and what they last reported.
+    pub bridges: crate::bridge::Bridges,
     /// Signing key for session cookies, generated once and kept in the database.
     pub session_secret: Vec<u8>,
     pub started_at: chrono::DateTime<chrono::Utc>,
@@ -39,6 +41,7 @@ impl AppState {
             http: http_client()?,
             catalogue: Catalogue::default(),
             statuses: Statuses::default(),
+            bridges: crate::bridge::Bridges::default(),
             session_secret,
             started_at: chrono::Utc::now(),
         })))

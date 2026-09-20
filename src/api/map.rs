@@ -193,10 +193,19 @@ async fn positions(
         .await?;
     let row = super::servers::load(&state, id).await?;
 
-    if row.kind != "minecraft_java" {
+    // Bedrock cannot be asked, so it tells: the add-on reports where everybody
+    // is, and the panel just reads what it last said.
+    if row.kind == "minecraft_bedrock" {
+        if state.bridges.connected(id).await {
+            return Ok(OkJson(json!({
+                "supported": true,
+                "players": state.bridges.players(id).await,
+            })));
+        }
         return Ok(OkJson(json!({
             "supported": false,
-            "reason": "Only Java servers answer this one: Bedrock has no RCON.",
+            "reason": "Install the Crustation add-on on this server and it can say where \
+                       everybody is. Bedrock has no RCON to ask over.",
             "players": [],
         })));
     }

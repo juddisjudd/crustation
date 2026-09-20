@@ -1,0 +1,25 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Crustation",
+    "description": "Lets the Crustation panel see chat and where people are, and run commands on this world.",
+    "uuid": "6b0c8a54-7f2a-4a2e-9a5a-2f1d6c3b8e10",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "description": "Talks to the panel.",
+      "language": "javascript",
+      "type": "script",
+      "uuid": "6b0c8a54-7f2a-4a2e-9a5a-2f1d6c3b8e11",
+      "version": [1, 0, 0],
+      "entry": "scripts/main.js"
+    }
+  ],
+  "dependencies": [
+    { "module_name": "@minecraft/server", "version": "1.11.0" },
+    { "module_name": "@minecraft/server-net", "version": "1.0.0-beta" },
+    { "module_name": "@minecraft/server-admin", "version": "1.0.0-beta" }
+  ]
+}
