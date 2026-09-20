@@ -25,6 +25,13 @@ const FOLDER: &str = "crustation";
 /// What the add-on needs and the default file does not list.
 const NEEDED_MODULES: [&str; 2] = ["@minecraft/server-net", "@minecraft/server-admin"];
 
+/// Every module the add-on imports, for the settings folder's own allow list.
+const PACK_MODULES: [&str; 3] = [
+    "@minecraft/server",
+    "@minecraft/server-net",
+    "@minecraft/server-admin",
+];
+
 /// Merged into the servers router for the managed half; the half the add-on
 /// itself calls is mounted separately, since a token is its only credential.
 pub fn routes() -> Router<AppState> {
@@ -379,6 +386,13 @@ fn lay_it_down(
         &settings.join("variables.json"),
         &serde_json::json!({ "panelUrl": panel_url, "token": token }),
     )?;
+    // A settings folder of its own takes the place of the default allow list
+    // rather than adding to it, so this one has to name every module, down to
+    // @minecraft/server.
+    write_json(
+        &settings.join("permissions.json"),
+        &serde_json::json!({ "allowed_modules": PACK_MODULES }),
+    )?;
 
     let mut laid = Laid {
         turned_beta_on: false,
@@ -475,4 +489,77 @@ async fn uninstall(
     )
     .await;
     Ok(Done)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_settings_folder_names_every_module_the_script_imports() {
+        let root = std::env::temp_dir().join("crustation-bridge-allow-list");
+        std::fs::remove_dir_all(&root).ok();
+        let source = root.join("addon");
+        let server = root.join("server");
+        std::fs::create_dir_all(&source).expect("source");
+        std::fs::write(source.join("manifest.json"), "{}").expect("manifest");
+
+        lay_it_down(
+            &source,
+            &server,
+            &server.join("worlds").join("none"),
+            "u",
+            "t",
+        )
+        .expect("lay it down");
+
+        let text = std::fs::read_to_string(
+            server
+                .join("config")
+                .join(SCRIPT_UUID)
+                .join("permissions.json"),
+        )
+        .expect("per-module permissions");
+        let allowed: Vec<String> = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|parsed| parsed.get("allowed_modules").cloned())
+            .and_then(|list| serde_json::from_value(list).ok())
+            .expect("allowed_modules");
+        for module in PACK_MODULES {
+            assert!(allowed.iter().any(|one| one == module), "missing {module}");
+        }
+    }
+
+    #[test]
+    fn the_default_allow_list_keeps_what_another_pack_put_there() {
+        let root = std::env::temp_dir().join("crustation-bridge-default-list");
+        std::fs::remove_dir_all(&root).ok();
+        let source = root.join("addon");
+        let server = root.join("server");
+        std::fs::create_dir_all(&source).expect("source");
+        std::fs::write(source.join("manifest.json"), "{}").expect("manifest");
+        let permissions = server.join("config").join("default");
+        std::fs::create_dir_all(&permissions).expect("config");
+        std::fs::write(
+            permissions.join("permissions.json"),
+            r#"{ "allowed_modules": ["@minecraft/server-ui"] }"#,
+        )
+        .expect("existing");
+
+        lay_it_down(
+            &source,
+            &server,
+            &server.join("worlds").join("none"),
+            "u",
+            "t",
+        )
+        .expect("lay it down");
+
+        let text =
+            std::fs::read_to_string(permissions.join("permissions.json")).expect("permissions");
+        assert!(text.contains("@minecraft/server-ui"));
+        for module in NEEDED_MODULES {
+            assert!(text.contains(module), "missing {module}");
+        }
+    }
 }

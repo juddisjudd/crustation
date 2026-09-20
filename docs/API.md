@@ -414,6 +414,9 @@ what happens on one. `POST /servers/{id}/bridge` installs a behaviour pack that 
 - `@minecraft/server-net` and `@minecraft/server-admin` are added to
   `config/default/permissions.json`, which the game will not hand out otherwise,
 - the panel address and a fresh token are written to `config/<script-uuid>/variables.json`,
+- every module the pack imports, `@minecraft/server` included, is repeated in
+  `config/<script-uuid>/permissions.json`, since a settings folder of its own replaces the
+  default allow list rather than adding to it,
 - and the Beta APIs experiment is turned on in the world, since the network module is gated on
   it. That means reading and writing `level.dat`, which is little-endian NBT.
 
