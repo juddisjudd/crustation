@@ -280,6 +280,18 @@ than inside the server, so it never shows up in the operator's own listing.
 | GET/POST  | `/users/{id}/api-keys`, DELETE `/users/{id}/api-keys/{key_id}` | API keys. The token is shown once, on create.                |
 | GET       | `/status`                                                      | Unauthenticated: servers marked public, for the status page. |
 
+Users, roles and keys are administered under `MANAGE_USERS` and `MANAGE_ROLES`; an administrator
+holds both. A role carries `global_permissions` and a list of `servers`, each naming a server and
+the permissions it grants there; a person's rights are the union of the roles they hold. An
+unknown permission name is refused rather than dropped.
+
+The guards against locking yourself out are enforced by the API, not the interface: you cannot
+delete, disable or demote yourself, and the last enabled administrator cannot be removed. Setting
+a password or disabling an account moves `sessions_valid_from`, ending every session it had open.
+An API key's token appears exactly once, in the reply that creates it.
+
+Anyone may read their own user record and manage their own keys without `MANAGE_USERS`.
+
 ## WebSocket
 
 One socket at `/ws`, authenticated by the same cookie. Client frames:

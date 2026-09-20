@@ -2,6 +2,8 @@
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import ShieldIcon from '@lucide/svelte/icons/shield';
+	import UsersIcon from '@lucide/svelte/icons/users';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import LogoMark from '$lib/components/brand/logo-mark.svelte';
@@ -107,6 +109,37 @@
 				{/each}
 			</Sidebar.Menu>
 		</Sidebar.Group>
+		{#if session.can('MANAGE_USERS') || session.can('MANAGE_ROLES')}
+			<Sidebar.Group>
+				<Sidebar.GroupLabel>{t('nav.groupAdmin')}</Sidebar.GroupLabel>
+				<Sidebar.Menu>
+					{#if session.can('MANAGE_USERS')}
+						{@const href = resolve('/users')}
+						<Sidebar.MenuItem>
+							<Sidebar.MenuButton isActive={isActive(href)} tooltipContent={t('nav.users')}>
+								{#snippet child({ props })}
+									<a {href} {...props}>
+										<UsersIcon /><span>{t('nav.users')}</span>
+									</a>
+								{/snippet}
+							</Sidebar.MenuButton>
+						</Sidebar.MenuItem>
+					{/if}
+					{#if session.can('MANAGE_ROLES')}
+						{@const href = resolve('/roles')}
+						<Sidebar.MenuItem>
+							<Sidebar.MenuButton isActive={isActive(href)} tooltipContent={t('nav.roles')}>
+								{#snippet child({ props })}
+									<a {href} {...props}>
+										<ShieldIcon /><span>{t('nav.roles')}</span>
+									</a>
+								{/snippet}
+							</Sidebar.MenuButton>
+						</Sidebar.MenuItem>
+					{/if}
+				</Sidebar.Menu>
+			</Sidebar.Group>
+		{/if}
 	</Sidebar.Content>
 
 	<Sidebar.Footer>

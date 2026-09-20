@@ -42,6 +42,11 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   delete, upload, download a file or a whole folder as a zip, and unpack an archive where it sits.
   Every path is checked twice, once as text and once after resolving links, so nothing reaches
   outside the server's own folder.
+- Users, roles and API keys, with screens for all three. A role carries panel-wide permissions and
+  a grid of per-server ones, and a person's rights are the union of the roles they hold. You
+  cannot delete, disable or demote yourself, and the last administrator cannot be removed by any
+  route. A server nobody granted answers 404 rather than 403, so the list of servers stays
+  private. Invite links are still to come.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
@@ -52,23 +57,21 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 2. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
    `banned-ips.json` on Java, `allowlist.json` and `permissions.json` on Bedrock (keyed by XUID),
    all as editable tables with username to UUID lookup and player heads.
-3. **Users and roles.** Administration screens and their endpoints, plus invite links that grant a
-   scoped per-server role, so an owner can hand a friend console-only access.
-4. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
+3. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
    rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
    Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
    and the End. Bedrock keeps its experiment toggles, Beta APIs among them, in the world's
    `level.dat` rather than in `server.properties`, so turning those on means reading and writing
    Bedrock's little-endian NBT. Java needs none of that: its experiments arrive as feature packs
    named in `initial-enabled-packs`, which server creation already offers.
-5. **Guarded upgrades.** Keep a copy of the old jar, swap it, start, and put the old one back on
+4. **Guarded upgrades.** Keep a copy of the old jar, swap it, start, and put the old one back on
    its own if the server never reaches ready. Originally this leaned on the backup manager; with
    backups moved out it keeps its own copy instead, which is all the rollback actually needs.
-6. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
+5. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
    failed-backup notifications, and browser push through the manifest the interface already ships.
-7. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
+6. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
    RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
-8. **Public status page**, panel settings, branding.
+7. **Public status page**, panel settings, branding.
 
 ## Alongside
 
