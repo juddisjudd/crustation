@@ -1,5 +1,8 @@
 <script lang="ts">
 	import BoxIcon from '@lucide/svelte/icons/box';
+	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+	import TrashIcon from '@lucide/svelte/icons/trash-2';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import PackagePlusIcon from '@lucide/svelte/icons/package-plus';
 	import { toast } from 'svelte-sonner';
@@ -11,17 +14,22 @@
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Empty from '$lib/components/ui/empty/index.js';
 	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
+	import { confirm } from '$lib/components/confirm/confirm.svelte';
 	import { errorMessage } from '$lib/api/servers';
 	import {
 		ADDON_TYPES,
 		WORLD_TYPES,
+		forgetPack,
 		listPacks,
 		listWorlds,
 		playWorld,
+		removePack,
 		uploadPack,
+		type MissingPack,
 		type Pack,
 		type PackSort,
 		type World
@@ -33,6 +41,7 @@
 	const server = $derived(data.server);
 
 	let packs = $state.raw<Pack[] | null>(null);
+	let missing = $state.raw<MissingPack[]>([]);
 	let worlds = $state.raw<World[] | null>(null);
 	let levelName = $state('');
 	let loadFailed = $state(false);
@@ -56,6 +65,7 @@
 			const [found, keeps] = await Promise.all([listPacks(id), listWorlds(id)]);
 			if (server.id !== id) return;
 			packs = found.packs;
+			missing = found.missing;
 			worlds = keeps.worlds;
 			levelName = keeps.level_name;
 			loadFailed = false;
@@ -65,9 +75,58 @@
 		}
 	}
 
+	async function drop(pack: Pack) {
+		const ok = await confirm({
+			title: t('content.removeTitle', { name: pack.name }),
+			description: pack.stock
+				? `${t('content.removeStock')} ${t('content.removeBody')}`
+				: t('content.removeBody'),
+			confirmLabel: t('content.remove'),
+			destructive: true
+		});
+		if (!ok) return;
+
+		busy = true;
+		try {
+			const gone = await removePack(server.id, pack.path);
+			// A world the panel could not tidy still names the pack, which is the
+			// very warning this was meant to prevent, so it is said out loud.
+			if (gone.skipped.length) {
+				toast.warning(t('content.removed', { name: gone.removed }), {
+					description: t('content.removedSkipped', { worlds: gone.skipped.join(', ') })
+				});
+			} else {
+				toast.success(t('content.removed', { name: gone.removed }), {
+					description: gone.worlds.length
+						? t('content.removedFrom', { worlds: gone.worlds.join(', ') })
+						: t('content.removedNowhere')
+				});
+			}
+			await refresh(server.id);
+		} catch (err) {
+			toast.error(t('content.failed'), { description: errorMessage(err) });
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function forget(gone: MissingPack) {
+		busy = true;
+		try {
+			await forgetPack(server.id, gone.uuid);
+			toast.success(t('content.forgotten', { uuid: gone.uuid, world: levelName }));
+			await refresh(server.id);
+		} catch (err) {
+			toast.error(t('content.failed'), { description: errorMessage(err) });
+		} finally {
+			busy = false;
+		}
+	}
+
 	$effect(() => {
 		const id = server.id;
 		packs = null;
+		missing = [];
 		worlds = null;
 		refresh(id);
 	});
@@ -207,6 +266,38 @@
 		</Alert.Root>
 	{/if}
 
+	{#if missing.length}
+		<Alert.Root variant="destructive">
+			<TriangleAlertIcon />
+			<Alert.Title>{t('content.missingTitle')}</Alert.Title>
+			<Alert.Description class="space-y-3">
+				<p>{t('content.missingBody')}</p>
+				<ul class="space-y-1">
+					{#each missing as gone (gone.uuid)}
+						<li class="flex flex-wrap items-center gap-2">
+							<code class="font-mono text-[11px]">{gone.uuid}</code>
+							<span class="text-xs text-muted-foreground">
+								{sortLabel(gone.sort)}
+								{#if gone.version.length}
+									· {t('content.version', { version: gone.version.join('.') })}
+								{/if}
+							</span>
+							<Button
+								variant="outline"
+								size="sm"
+								class="ml-auto"
+								disabled={busy}
+								onclick={() => forget(gone)}
+							>
+								{t('content.forget')}
+							</Button>
+						</li>
+					{/each}
+				</ul>
+			</Alert.Description>
+		</Alert.Root>
+	{/if}
+
 	<section class="space-y-3">
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<h2 class="text-sm font-medium">{t('content.packs')}</h2>
@@ -239,6 +330,7 @@
 							<Table.Head>{t('content.packs')}</Table.Head>
 							<Table.Head class="hidden w-40 md:table-cell">{t('content.folder')}</Table.Head>
 							<Table.Head class="w-28">{t('content.active')}</Table.Head>
+							<Table.Head class="w-12"></Table.Head>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
@@ -259,6 +351,11 @@
 											· {t('content.version', { version: pack.version.join('.') })}
 										{/if}
 									</div>
+									{#if pack.uuid}
+										<div class="mt-1 truncate font-mono text-[11px] text-muted-foreground/70">
+											{pack.uuid}
+										</div>
+									{/if}
 								</Table.Cell>
 								<Table.Cell class="hidden truncate font-mono text-xs md:table-cell">
 									{pack.path}
@@ -269,6 +366,29 @@
 									{:else}
 										<Badge variant="outline">{t('content.inactive')}</Badge>
 									{/if}
+								</Table.Cell>
+								<Table.Cell class="text-right">
+									<DropdownMenu.Root>
+										<DropdownMenu.Trigger>
+											{#snippet child({ props })}
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													aria-label={t('content.remove')}
+													disabled={busy}
+													{...props}
+												>
+													<EllipsisIcon />
+												</Button>
+											{/snippet}
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Content align="end">
+											<DropdownMenu.Item variant="destructive" onSelect={() => drop(pack)}>
+												<TrashIcon />
+												{t('content.remove')}
+											</DropdownMenu.Item>
+										</DropdownMenu.Content>
+									</DropdownMenu.Root>
 								</Table.Cell>
 							</Table.Row>
 						{/each}

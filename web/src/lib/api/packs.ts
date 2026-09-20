@@ -44,8 +44,29 @@ export const looksInstallable = (name: string) => {
 	return TAKEN.some((one) => lower.endsWith(one));
 };
 
+export interface MissingPack {
+	uuid: string;
+	version: number[];
+	sort: PackSort;
+}
+
 export const listPacks = (serverId: string) =>
-	api.get<{ packs: Pack[] }>(`/servers/${serverId}/packs`);
+	api.get<{ packs: Pack[]; missing: MissingPack[] }>(`/servers/${serverId}/packs`);
+
+/** Removes an installed pack: its files, and its id from every world. */
+export const removePack = (serverId: string, path: string) =>
+	api.delete<{
+		removed: string;
+		path: string;
+		uuid: string | null;
+		worlds: string[];
+		skipped: string[];
+		restart_required: boolean;
+	}>(`/servers/${serverId}/packs`, { path });
+
+/** Takes a pack the world names but does not have out of its list. */
+export const forgetPack = (serverId: string, uuid: string, world?: string) =>
+	api.delete<{ removed: string }>(`/servers/${serverId}/packs`, { uuid, world });
 
 export const listWorlds = (serverId: string) =>
 	api.get<{ worlds: World[]; level_name: string }>(`/servers/${serverId}/worlds`);

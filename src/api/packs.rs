@@ -21,7 +21,7 @@ use crate::state::AppState;
 /// Merged into the servers router, where the id in the path comes from.
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/{id}/packs", get(list).post(add))
+        .route("/{id}/packs", get(list).post(add).delete(remove))
         .route(
             "/{id}/packs/upload",
             // An add-on is picked in a file dialog and sent straight here, so
@@ -76,11 +76,154 @@ async fn list(
     Path(id): Path<Uuid>,
 ) -> ApiResult<impl IntoResponse> {
     let (directory, level, bedrock) = located(&identity, &state, id).await?;
-    let found =
-        tokio::task::spawn_blocking(move || crate::packs::installed(&directory, &level, bedrock))
+    let (found, absent) = tokio::task::spawn_blocking(move || {
+        let found = crate::packs::installed(&directory, &level, bedrock);
+        // What the server will grumble about on its next start, worked out the
+        // same way it does: an id in the world's list with no pack behind it.
+        let absent = match bedrock {
+            true => crate::packs::missing(&directory, &level),
+            false => Vec::new(),
+        };
+        (found, absent)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(error.into()))?;
+
+    Ok(OkJson(json!({ "packs": found, "missing": absent })))
+}
+
+#[derive(Deserialize)]
+struct Remove {
+    /// An installed pack's folder, exactly as the listing gives it. Removes the
+    /// files and takes the pack out of every world that names it.
+    path: Option<String>,
+    /// A pack id a world names but that is not installed. Removes the mention
+    /// alone, since there is nothing else left of it.
+    uuid: Option<String>,
+    /// Which world to take the id out of. `level-name` when nothing is said.
+    /// Ignored when removing an installed pack, which leaves no world naming it.
+    world: Option<String>,
+}
+
+/// Removes a pack. Either an installed one, by the folder it sits in, or an id
+/// a world names with nothing behind it.
+async fn remove(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<Remove>,
+) -> ApiResult<impl IntoResponse> {
+    let (directory, level, bedrock) = located(&identity, &state, id).await?;
+
+    match body
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|one| !one.is_empty())
+    {
+        Some(path) => uninstall(&state, &identity, id, directory, level, bedrock, path).await,
+        None => {
+            let uuid = body
+                .uuid
+                .as_deref()
+                .map(str::trim)
+                .filter(|one| !one.is_empty())
+                .ok_or_else(|| ApiError::field("path", "Name the pack to remove."))?
+                .to_string();
+            forget(
+                &state, &identity, id, directory, level, bedrock, body.world, uuid,
+            )
             .await
-            .map_err(|error| ApiError::Internal(error.into()))?;
-    Ok(OkJson(json!({ "packs": found })))
+        }
+    }
+}
+
+/// Removes an installed pack, files and all.
+///
+/// The folder is matched against the listing rather than taken on trust, so the
+/// only thing this can delete is somewhere a pack actually is.
+#[allow(clippy::too_many_arguments)]
+async fn uninstall(
+    state: &AppState,
+    identity: &Identity,
+    id: Uuid,
+    directory: PathBuf,
+    level: String,
+    bedrock: bool,
+    path: &str,
+) -> ApiResult<OkJson<serde_json::Value>> {
+    let wanted = path.to_string();
+    let at = directory.clone();
+    let listing = level.clone();
+    let found = tokio::task::spawn_blocking(move || {
+        crate::packs::installed(&at, &listing, bedrock)
+            .into_iter()
+            .find(|one| one.path == wanted)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(error.into()))?
+    .ok_or_else(|| ApiError::not_found("Pack"))?;
+
+    let folder = crate::files::resolve(&directory, &found.path)
+        .map_err(|refused| ApiError::field("path", refused.to_string()))?;
+    let at = directory.clone();
+    let gone = tokio::task::spawn_blocking(move || crate::packs::uninstall(&at, &folder, bedrock))
+        .await
+        .map_err(|error| ApiError::Internal(error.into()))?
+        .map_err(ApiError::Internal)?;
+
+    super::audit(
+        state,
+        Some(&identity.user),
+        Some(id),
+        "removed an add-on",
+        Some(&found.name),
+    )
+    .await;
+    Ok(OkJson(json!({
+        "removed": found.name,
+        "path": found.path,
+        "uuid": gone.uuid,
+        "worlds": gone.worlds,
+        "skipped": gone.skipped,
+        "restart_required": state.supervisor.state(id).await.is_live(),
+    })))
+}
+
+/// Takes an id out of a world's pack list. For the entries the server reports
+/// as configured but not found: the pack is gone, only the mention is left.
+#[allow(clippy::too_many_arguments)]
+async fn forget(
+    state: &AppState,
+    identity: &Identity,
+    id: Uuid,
+    directory: PathBuf,
+    level: String,
+    bedrock: bool,
+    world: Option<String>,
+    uuid: String,
+) -> ApiResult<OkJson<serde_json::Value>> {
+    let level = chosen_world(&directory, level, bedrock, world).await?;
+
+    let gone = uuid.clone();
+    let dropped =
+        tokio::task::spawn_blocking(move || crate::packs::forget(&directory, &level, &gone))
+            .await
+            .map_err(|error| ApiError::Internal(error.into()))?
+            .map_err(ApiError::Internal)?;
+
+    if !dropped {
+        return Err(ApiError::not_found("Pack entry"));
+    }
+    super::audit(
+        state,
+        Some(&identity.user),
+        Some(id),
+        "removed a pack a world named but did not have",
+        Some(&uuid),
+    )
+    .await;
+    Ok(OkJson(json!({ "removed": uuid })))
 }
 
 /// The worlds an add-on could be switched on for, so the caller can be asked

@@ -150,6 +150,57 @@ pub fn folder_name(name: &str, fallback: &str) -> String {
     }
 }
 
+/// The folder a pack's files should go in, under its kind's directory.
+///
+/// Replacing what is there is right when it holds the same pack, since that is
+/// an update. It is wrong when it holds a different one: two packs that happen
+/// to call themselves the same thing would take turns deleting each other, and
+/// because both are still written into the world's list the server would start
+/// up complaining that a configured pack was not found. A second pack with a
+/// name already taken gets a folder of its own, marked with its own id.
+fn destination(
+    server: &Path,
+    sort: Sort,
+    level: &str,
+    folder: &str,
+    uuid: &str,
+    placed: &[Installed],
+) -> String {
+    let mut candidate = folder.to_string();
+    let mut attempt = 0;
+
+    loop {
+        let at = relative(sort.folder(level).join(&candidate));
+        let holder = placed
+            .iter()
+            .find(|one| one.path == at)
+            .map(|one| one.uuid.clone())
+            .unwrap_or_else(|| pack_at(&server.join(sort.folder(level)).join(&candidate)));
+
+        match holder {
+            Some(found) if found != uuid => {
+                attempt += 1;
+                let short: String = uuid
+                    .chars()
+                    .filter(char::is_ascii_alphanumeric)
+                    .take(8)
+                    .collect();
+                candidate = match attempt {
+                    1 => format!("{folder}-{short}"),
+                    more => format!("{folder}-{short}-{more}"),
+                };
+            }
+            _ => return candidate,
+        }
+    }
+}
+
+/// Which pack a folder already holds, if it holds one the panel can read.
+fn pack_at(folder: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(folder.join("manifest.json")).ok()?;
+    read_manifest(&text).map(|one| one.uuid)
+}
+
 /// One pack the panel put somewhere.
 #[derive(Debug, Clone, Serialize)]
 pub struct Installed {
@@ -315,11 +366,19 @@ fn unpack_into(
             .file_name()
             .and_then(|one| one.to_str())
             .unwrap_or_else(|| stem(archive));
-        let folder = folder_name(&manifest.name, fallback);
+        let folder = destination(
+            server,
+            manifest.sort,
+            level,
+            &folder_name(&manifest.name, fallback),
+            &manifest.uuid,
+            found,
+        );
         let into = server.join(manifest.sort.folder(level)).join(&folder);
 
         // Replace rather than merge, so an update does not leave the old files
-        // of a pack that dropped them.
+        // of a pack that dropped them. `destination` has already made sure this
+        // folder is either free or the same pack's.
         std::fs::remove_dir_all(&into).ok();
         std::fs::create_dir_all(&into)?;
         crate::files::extract_zip(archive, &into, root.to_str().unwrap_or_default())?;
@@ -579,6 +638,140 @@ pub fn installed(server: &Path, level: &str, bedrock: bool) -> Vec<Installed> {
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
     out
+}
+
+/// A pack a world is told to load that is not on the disk.
+///
+/// This is what the server means when it says, once, at startup, that a
+/// configured pack was not found and was ignored. The id is all it gives you,
+/// and the panel is the only thing holding enough to make sense of it.
+#[derive(Debug, Clone, Serialize)]
+pub struct Missing {
+    pub uuid: String,
+    pub version: Vec<i64>,
+    /// Which of the two lists names it.
+    pub sort: Sort,
+}
+
+/// Packs a world names that are not installed. Read from the world's own lists,
+/// so it says exactly what the server will complain about on its next start.
+pub fn missing(server: &Path, level: &str) -> Vec<Missing> {
+    let here: Vec<String> = [Sort::Behaviour, Sort::Resource]
+        .iter()
+        .flat_map(|sort| {
+            std::fs::read_dir(server.join(sort.folder(level)))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| pack_at(&entry.path()))
+        })
+        .collect();
+
+    let world = server.join("worlds").join(level);
+    let mut out = Vec::new();
+
+    for sort in [Sort::Behaviour, Sort::Resource] {
+        let Some(file) = sort.world_list() else {
+            continue;
+        };
+        let Ok(rows) = read_world_list(&world.join(file)) else {
+            continue;
+        };
+        for row in rows {
+            let Some(uuid) = row.get("pack_id").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if here.iter().any(|one| one == uuid) {
+                continue;
+            }
+            out.push(Missing {
+                uuid: uuid.to_string(),
+                version: row.get("version").map(version_of).unwrap_or_default(),
+                sort,
+            });
+        }
+    }
+    out
+}
+
+/// Takes a pack out of a world's list, for one the world names but that is not
+/// there. The pack's own folder, if it has one, is left alone.
+pub fn forget(server: &Path, level: &str, uuid: &str) -> Result<bool> {
+    let world = server.join("worlds").join(level);
+    let mut dropped = false;
+
+    for sort in [Sort::Behaviour, Sort::Resource] {
+        let Some(file) = sort.world_list() else {
+            continue;
+        };
+        let path = world.join(file);
+        let rows = read_world_list(&path)?;
+        let kept: Vec<serde_json::Value> = rows
+            .into_iter()
+            .filter(|row| row.get("pack_id").and_then(serde_json::Value::as_str) != Some(uuid))
+            .collect();
+
+        // Only rewrite a list that actually changed, so nothing is touched for
+        // an id that was never in it.
+        if kept.len() != read_world_list(&path)?.len() {
+            write_world_list(&path, &kept)?;
+            dropped = true;
+        }
+    }
+    Ok(dropped)
+}
+
+/// What came of removing a pack.
+#[derive(Debug, Clone, Serialize)]
+pub struct Removed {
+    pub uuid: Option<String>,
+    /// The worlds it was taken out of, by name.
+    pub worlds: Vec<String>,
+    /// Worlds whose pack list could not be read, so they still name it. The
+    /// caller is told rather than left to find out from the server's log.
+    pub skipped: Vec<String>,
+}
+
+/// Removes an installed pack: its id from every world that names it, and then
+/// its folder.
+///
+/// Every world, not only the one being played. A world left naming a pack whose
+/// files are gone is the "configured pack was not found" the server grumbles
+/// about at startup, and leaving that behind while tidying up would be a poor
+/// trade.
+///
+/// The lists are done first on purpose. If the folder will not delete, the worst
+/// left behind is a pack that is present and switched off; the other order
+/// leaves a world naming a pack that is not there, which is the thing this is
+/// trying to avoid. For the same reason a world whose list cannot be read is
+/// reported and stepped over rather than stopping the removal: one unreadable
+/// file should not make a pack impossible to get rid of.
+pub fn uninstall(server: &Path, at: &Path, bedrock: bool) -> Result<Removed> {
+    // Read who it is before the folder goes, since the manifest goes with it.
+    let uuid = pack_at(at);
+    let mut out = Removed {
+        uuid: uuid.clone(),
+        worlds: Vec::new(),
+        skipped: Vec::new(),
+    };
+
+    // Only Bedrock keeps a list of what a world loads; Java reads its datapacks
+    // folder, which removing the folder settles by itself.
+    if let Some(uuid) = uuid.filter(|_| bedrock) {
+        for world in worlds(server, true) {
+            match forget(server, &world.folder, &uuid) {
+                Ok(true) => out.worlds.push(world.name),
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(%error, world = %world.folder, "could not tidy a world's pack list");
+                    out.skipped.push(world.name);
+                }
+            }
+        }
+    }
+
+    std::fs::remove_dir_all(at).with_context(|| format!("removing {}", at.display()))?;
+    Ok(out)
 }
 
 /// One world on the server, as the picker offers it.
@@ -872,6 +1065,219 @@ mod tests {
         let rows: Vec<serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
         assert_eq!(rows.len(), 1);
+    }
+
+    fn placed(path: &str, uuid: &str) -> Installed {
+        Installed {
+            name: path.to_string(),
+            sort: Sort::Behaviour,
+            path: path.to_string(),
+            uuid: Some(uuid.to_string()),
+            version: Vec::new(),
+            activated: true,
+            stock: false,
+        }
+    }
+
+    #[test]
+    fn the_same_pack_again_goes_back_where_it_was() {
+        let root = sandbox("update");
+        let already = [placed("behavior_packs/Shiny", "pack-a")];
+        assert_eq!(
+            destination(&root, Sort::Behaviour, "w", "Shiny", "pack-a", &already),
+            "Shiny"
+        );
+    }
+
+    #[test]
+    fn a_second_pack_of_the_same_name_does_not_land_on_the_first() {
+        let root = sandbox("collide");
+        let already = [placed("behavior_packs/Shiny", "pack-a")];
+        let folder = destination(&root, Sort::Behaviour, "w", "Shiny", "pack-b", &already);
+
+        assert_ne!(folder, "Shiny", "pack-b must not take pack-a's folder");
+        assert!(folder.starts_with("Shiny-"), "kept the name it asked for");
+    }
+
+    #[test]
+    fn a_third_pack_of_the_same_name_gets_its_own_folder_too() {
+        let root = sandbox("collide-thrice");
+        let already = [
+            placed("behavior_packs/Shiny", "pack-a"),
+            placed("behavior_packs/Shiny-packb", "pack-b"),
+        ];
+        let folder = destination(&root, Sort::Behaviour, "w", "Shiny", "pack-c", &already);
+        assert!(!already.iter().any(|one| one.path.ends_with(&folder)));
+    }
+
+    #[test]
+    fn a_folder_on_disk_holding_another_pack_is_not_taken_either() {
+        let root = sandbox("on-disk");
+        let at = root.join("behavior_packs").join("Shiny");
+        std::fs::create_dir_all(&at).expect("folder");
+        std::fs::write(
+            at.join("manifest.json"),
+            BEHAVIOUR.replace("aaaa-1", "already-here"),
+        )
+        .expect("manifest");
+
+        let folder = destination(&root, Sort::Behaviour, "w", "Shiny", "newcomer", &[]);
+        assert_ne!(folder, "Shiny", "the pack already there must survive");
+    }
+
+    #[test]
+    fn a_world_naming_a_pack_that_is_not_there_says_so() {
+        let root = sandbox("orphans");
+        // One pack installed and listed, one listed with nothing behind it.
+        let at = root.join("behavior_packs").join("Here");
+        std::fs::create_dir_all(&at).expect("folder");
+        std::fs::write(
+            at.join("manifest.json"),
+            BEHAVIOUR.replace("aaaa-1", "is-here"),
+        )
+        .expect("manifest");
+
+        let world = root.join("worlds").join("w");
+        std::fs::create_dir_all(&world).expect("world");
+        std::fs::write(
+            world.join("world_behavior_packs.json"),
+            r#"[{"pack_id":"is-here","version":[1,0,0]},
+                {"pack_id":"long-gone","version":[1,1,29]}]"#,
+        )
+        .expect("list");
+
+        let found = missing(&root, "w");
+        assert_eq!(found.len(), 1, "only the one with no pack behind it");
+        assert_eq!(found[0].uuid, "long-gone");
+        assert_eq!(found[0].version, vec![1, 1, 29]);
+    }
+
+    #[test]
+    fn forgetting_an_entry_leaves_the_others_alone() {
+        let root = sandbox("forget");
+        let world = root.join("worlds").join("w");
+        std::fs::create_dir_all(&world).expect("world");
+        let list = world.join("world_behavior_packs.json");
+        std::fs::write(
+            &list,
+            r#"[{"pack_id":"keep-me","version":[1,0,0]},
+                {"pack_id":"long-gone","version":[1,0,0]}]"#,
+        )
+        .expect("list");
+
+        assert!(forget(&root, "w", "long-gone").expect("forget"));
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["pack_id"], "keep-me");
+    }
+
+    #[test]
+    fn forgetting_something_that_was_never_listed_changes_nothing() {
+        let root = sandbox("forget-nothing");
+        let world = root.join("worlds").join("w");
+        std::fs::create_dir_all(&world).expect("world");
+        std::fs::write(
+            world.join("world_behavior_packs.json"),
+            r#"[{"pack_id":"keep-me","version":[1,0,0]}]"#,
+        )
+        .expect("list");
+
+        assert!(!forget(&root, "w", "never-there").expect("forget"));
+    }
+
+    #[test]
+    fn removing_a_pack_takes_it_out_of_every_world_that_named_it() {
+        let root = sandbox("uninstall");
+        let at = root.join("behavior_packs").join("Shiny");
+        std::fs::create_dir_all(&at).expect("folder");
+        std::fs::write(
+            at.join("manifest.json"),
+            BEHAVIOUR.replace("aaaa-1", "going-away"),
+        )
+        .expect("manifest");
+
+        // Two worlds load it, and one of them loads something else too.
+        for (name, rows) in [
+            (
+                "Bedrock level",
+                r#"[{"pack_id":"going-away","version":[1,0,0]}]"#,
+            ),
+            (
+                "Second",
+                r#"[{"pack_id":"going-away","version":[1,0,0]},
+                    {"pack_id":"stays","version":[2,0,0]}]"#,
+            ),
+        ] {
+            let world = root.join("worlds").join(name);
+            world_at(&world, None);
+            std::fs::write(world.join("world_behavior_packs.json"), rows).expect("list");
+        }
+
+        let gone = uninstall(&root, &at, true).expect("uninstall");
+        assert_eq!(gone.uuid.as_deref(), Some("going-away"));
+        assert_eq!(gone.worlds.len(), 2, "both worlds named it");
+        assert!(gone.skipped.is_empty());
+        assert!(!at.exists(), "the folder is gone");
+
+        let left = std::fs::read_to_string(
+            root.join("worlds")
+                .join("Second")
+                .join("world_behavior_packs.json"),
+        )
+        .expect("read");
+        assert!(!left.contains("going-away"));
+        assert!(left.contains("stays"), "the other pack is untouched");
+    }
+
+    #[test]
+    fn a_world_with_an_unreadable_list_does_not_stop_the_removal() {
+        let root = sandbox("uninstall-broken");
+        let at = root.join("behavior_packs").join("Shiny");
+        std::fs::create_dir_all(&at).expect("folder");
+        std::fs::write(
+            at.join("manifest.json"),
+            BEHAVIOUR.replace("aaaa-1", "going-away"),
+        )
+        .expect("manifest");
+
+        let broken = root.join("worlds").join("Broken");
+        world_at(&broken, None);
+        std::fs::write(broken.join("world_behavior_packs.json"), "{ truncated").expect("bad list");
+
+        let fine = root.join("worlds").join("Fine");
+        world_at(&fine, None);
+        std::fs::write(
+            fine.join("world_behavior_packs.json"),
+            r#"[{"pack_id":"going-away","version":[1,0,0]}]"#,
+        )
+        .expect("list");
+
+        let gone = uninstall(&root, &at, true).expect("the pack still goes");
+        assert!(!at.exists(), "the files are removed either way");
+        assert_eq!(gone.worlds, vec!["Fine"], "the readable world was tidied");
+        assert_eq!(
+            gone.skipped,
+            vec!["Broken"],
+            "and the other one is reported"
+        );
+        assert_eq!(
+            std::fs::read_to_string(broken.join("world_behavior_packs.json")).expect("read"),
+            "{ truncated",
+            "an unreadable list is never written over"
+        );
+    }
+
+    #[test]
+    fn removing_a_pack_no_world_names_still_removes_the_files() {
+        let root = sandbox("uninstall-unused");
+        let at = root.join("behavior_packs").join("Lonely");
+        std::fs::create_dir_all(&at).expect("folder");
+        std::fs::write(at.join("manifest.json"), BEHAVIOUR).expect("manifest");
+
+        let gone = uninstall(&root, &at, true).expect("uninstall");
+        assert!(gone.worlds.is_empty());
+        assert!(!at.exists());
     }
 
     #[test]

@@ -52,5 +52,24 @@ export const content = {
 	nowPlaying: 'The server now plays {world}. Restart it to load.',
 	worldKept: 'It is in the worlds folder. Point level-name at it to play it.',
 	failed: 'That did not work',
-	restartNeeded: 'Restart the server for this to take'
+	restartNeeded: 'Restart the server for this to take',
+
+	missingTitle: 'This world names packs it does not have',
+	missingBody:
+		'The server reports each of these once at startup as "Configured pack was not found and was ignored", then carries on without it. Either the pack was removed while the world still named it, or two packs shared a folder. Removing the entry stops the warning; it does not touch any pack that is installed.',
+	missingId: 'Pack id',
+	forget: 'Remove entry',
+	forgotten: 'Removed {uuid} from {world}',
+	packId: 'Pack id {uuid}',
+
+	remove: 'Remove',
+	removeTitle: 'Remove {name}?',
+	removeBody:
+		'Its files are deleted and it is taken out of every world that loads it. Anything it added to a world stays in that world; the game just stops knowing what it was.',
+	removeStock: 'This is one the server came with. Removing it may stop the server loading.',
+	removed: 'Removed {name}',
+	removedFrom: 'Taken out of {worlds}.',
+	removedNowhere: 'No world was loading it.',
+	removedSkipped:
+		'{worlds} still names it: that pack list could not be read, so it was left alone. Fix it by hand, or the server will warn about a pack it cannot find.'
 } as const;
