@@ -2,7 +2,11 @@
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import CornerDownLeftIcon from '@lucide/svelte/icons/corner-down-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import ClockIcon from '@lucide/svelte/icons/clock';
+	import DownloadIcon from '@lucide/svelte/icons/download';
 	import EraserIcon from '@lucide/svelte/icons/eraser';
+	import RegexIcon from '@lucide/svelte/icons/regex';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import { toast } from 'svelte-sonner';
 	import { tick } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -14,6 +18,7 @@
 	import { socket } from '$lib/realtime/socket.svelte';
 	import { servers } from '$lib/servers.svelte';
 	import type { ConsoleLine, RconStatus } from '$lib/api/types';
+	import { asText, badRegex, levelOf, matcherFor, pieces, plain, type Level } from '$lib/console';
 	import { t } from '$lib/i18n/index.svelte';
 
 	const MAX_LINES = 2000;
@@ -41,6 +46,43 @@
 	let historyIndex = -1;
 	let rcon = $state<RconStatus | null>(null);
 	let enabling = $state(false);
+
+	const LEVELS: Level[] = ['error', 'warn', 'info', 'other'];
+	let hidden = $state<Level[]>([]);
+	let query = $state('');
+	let asRegex = $state(false);
+	let timestamps = $state(false);
+
+	const broken = $derived(badRegex(query, asRegex));
+	const matcher = $derived(broken ? null : matcherFor(query, asRegex));
+	const filtering = $derived(hidden.length > 0 || !!matcher);
+
+	const shown = $derived.by(() => {
+		if (!filtering) return lines;
+		return lines.filter((line) => {
+			if (hidden.includes(levelOf(line))) return false;
+			// Search on the text a person sees, not the colour codes behind it.
+			return !matcher || matcher.test(plain(line.text));
+		});
+	});
+
+	function toggleLevel(level: Level) {
+		hidden = hidden.includes(level) ? hidden.filter((one) => one !== level) : [...hidden, level];
+	}
+
+	function download() {
+		const blob = new Blob([asText(lines)], { type: 'text/plain;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = `${server.name.replace(/[^\w.-]+/g, '-')}-console.txt`;
+		link.click();
+		URL.revokeObjectURL(url);
+	}
+
+	function clockOf(line: ConsoleLine) {
+		return new Date(line.at).toLocaleTimeString();
+	}
 
 	// Reachability is proven by connecting, so re-check when the server comes up.
 	const rconProbe = $derived({ id: server.id, running });
@@ -211,23 +253,61 @@
 					</Tooltip.Content>
 				</Tooltip.Root>
 			{/if}
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					{#snippet child({ props })}
-						<Button
-							{...props}
-							variant="ghost"
-							size="icon-xs"
-							class="text-white/60 hover:bg-white/10 hover:text-white"
-							aria-label={t('server.console.clear')}
-							onclick={() => (lines = [])}
-						>
-							<EraserIcon />
-						</Button>
-					{/snippet}
-				</Tooltip.Trigger>
-				<Tooltip.Content>{t('server.console.clear')}</Tooltip.Content>
-			</Tooltip.Root>
+			{@render iconButton(
+				ClockIcon,
+				t('server.console.timestamps'),
+				() => (timestamps = !timestamps),
+				timestamps
+			)}
+			{@render iconButton(DownloadIcon, t('server.console.download'), download)}
+			{@render iconButton(EraserIcon, t('server.console.clear'), () => (lines = []))}
+		</div>
+
+		<div
+			class="flex flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2 text-xs text-white/60"
+		>
+			{#each LEVELS as level (level)}
+				{@const off = hidden.includes(level)}
+				<button
+					class={[
+						'rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+						off
+							? 'border-white/10 text-white/30 line-through'
+							: 'border-white/20 text-white/80 hover:bg-white/10'
+					]}
+					aria-pressed={!off}
+					onclick={() => toggleLevel(level)}
+				>
+					{t(`server.console.level.${level}`)}
+				</button>
+			{/each}
+
+			<div class="ml-auto flex items-center gap-1.5">
+				<InputGroup.Root class="h-7 w-48 border-white/15 bg-transparent">
+					<InputGroup.Addon><SearchIcon class="size-3.5 text-white/40" /></InputGroup.Addon>
+					<InputGroup.Input
+						bind:value={query}
+						placeholder={t('server.console.search')}
+						aria-label={t('server.console.search')}
+						aria-invalid={broken}
+						class="text-[11px] text-white placeholder:text-white/30"
+					/>
+				</InputGroup.Root>
+				{@render iconButton(
+					RegexIcon,
+					t('server.console.regex'),
+					() => (asRegex = !asRegex),
+					asRegex
+				)}
+			</div>
+
+			{#if broken}
+				<span class="w-full text-[11px] text-[#ff6166]">{t('server.console.badRegex')}</span>
+			{:else if filtering}
+				<span class="w-full text-[11px] text-white/40">
+					{t('server.console.filtered', { shown: shown.length, total: lines.length })}
+				</span>
+			{/if}
 		</div>
 
 		<div
@@ -243,9 +323,28 @@
 					{running ? t('server.console.waiting') : t('server.console.stopped')}
 				</p>
 			{/if}
-			{#each lines as line (line.seq)}
+			{#if lines.length > 0 && shown.length === 0}
+				<p class="text-white/40">{t('server.console.noMatch')}</p>
+			{/if}
+			{#each shown as line (line.seq)}
 				<div class={['break-words whitespace-pre-wrap', STREAM_STYLE[line.stream]]}>
-					{line.text || ' '}
+					{#if timestamps}<span class="text-white/30">{clockOf(line)} </span>{/if}
+					{#each pieces(line.text, matcher) as piece, index (index)}
+						<span
+							class={[
+								piece.bold && 'font-bold',
+								piece.italic && 'italic',
+								piece.underline && 'underline',
+								piece.strike && 'line-through',
+								piece.hit && 'rounded-sm bg-[#ffd866] text-black'
+							]}
+							style={piece.colour ? `color: ${piece.colour}` : undefined}
+						>
+							{piece.text}
+						</span>
+					{:else}
+						{' '}
+					{/each}
 				</div>
 			{/each}
 		</div>
@@ -296,3 +395,27 @@
 		{/if}
 	</div>
 </div>
+
+{#snippet iconButton(Icon: typeof EraserIcon, label: string, onclick: () => void, active = false)}
+	<Tooltip.Root>
+		<Tooltip.Trigger>
+			{#snippet child({ props })}
+				<Button
+					{...props}
+					variant="ghost"
+					size="icon-xs"
+					class={[
+						'hover:bg-white/10 hover:text-white',
+						active ? 'bg-white/10 text-white' : 'text-white/60'
+					]}
+					aria-label={label}
+					aria-pressed={active}
+					{onclick}
+				>
+					<Icon />
+				</Button>
+			{/snippet}
+		</Tooltip.Trigger>
+		<Tooltip.Content>{label}</Tooltip.Content>
+	</Tooltip.Root>
+{/snippet}
