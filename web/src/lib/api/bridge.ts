@@ -11,6 +11,8 @@ export interface BridgeStatus {
 	world: string;
 	/** Where the panel thinks the game server can reach it. */
 	suggested_url: string;
+	/** What the server said about the add-on, out of its own console. */
+	notes: string[];
 }
 
 export interface Installed {

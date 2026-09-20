@@ -170,7 +170,38 @@ async fn status(
         "beta_apis": beta,
         "world": level,
         "suggested_url": suggested,
+        "notes": notes(&state, id).await,
     })))
+}
+
+/// What the server said about the add-on, pulled out of the console.
+///
+/// When a script will not load, the game says so once at startup and then
+/// never again, and it is easily lost in a few hundred lines of world loading.
+/// This is the difference between "it does not work" and a reason.
+async fn notes(state: &AppState, id: Uuid) -> Vec<String> {
+    const WORTH_SAYING: [&str; 6] = [
+        "crustation",
+        "script",
+        "module",
+        "@minecraft",
+        "pack stack",
+        "scripting",
+    ];
+    let lines = state.supervisor.console(id, None).await;
+    let mut found: Vec<String> = lines
+        .iter()
+        .filter(|line| {
+            let lower = line.text.to_lowercase();
+            WORTH_SAYING.iter().any(|one| lower.contains(one))
+        })
+        .map(|line| line.text.clone())
+        .collect();
+    // The last few are the ones from this start, which is the run being asked
+    // about.
+    let from = found.len().saturating_sub(12);
+    found.drain(..from);
+    found
 }
 
 fn beta_apis_on(world: &FsPath) -> Option<bool> {

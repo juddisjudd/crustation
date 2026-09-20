@@ -118,6 +118,16 @@
 			</Alert.Root>
 		{/if}
 
+		{#if bridge.notes.length}
+			<details class="rounded-md border bg-muted/30 text-xs" open={!bridge.connected}>
+				<summary class="cursor-pointer px-3 py-2 select-none">{t('addon.notes')}</summary>
+				<pre
+					class="overflow-x-auto px-3 pb-2 font-mono text-[11px] leading-5 whitespace-pre-wrap">{bridge.notes.join(
+						'\n'
+					)}</pre>
+			</details>
+		{/if}
+
 		{#if canEdit}
 			<div class="grid gap-2">
 				<Label for="panel-url">{t('addon.url')}</Label>

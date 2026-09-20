@@ -19,6 +19,7 @@ export const addon = {
 	removeTitle: 'Remove the add-on?',
 	removeBody: 'Chat and the live map stop working for this server. Nothing else is touched.',
 	removed: 'Add-on removed',
+	notes: 'What the server said about it',
 	quiet:
 		'Installed, but the server has not called in. Restart it, and check the address above is one it can reach.',
 	betaOff:

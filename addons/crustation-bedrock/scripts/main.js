@@ -10,6 +10,11 @@
  * Server, only when the world has the Beta APIs experiment on, and only when
  * the module is listed in config/default/permissions.json. The panel writes
  * all three when it installs this.
+ *
+ * The event names move between API versions, so every subscription is made on
+ * its own and a failure is reported rather than taking the rest down with it.
+ * A pack that reports half a job is worth far more than one that dies on line
+ * three and says nothing.
  */
 
 import { system, world } from '@minecraft/server';
@@ -21,6 +26,10 @@ const EVERY = 20;
 /** Never let a backlog grow without bound if the panel is down. */
 const MOST_HELD = 500;
 
+const say = (text) => console.warn(`[Crustation] ${text}`);
+
+say('script loaded');
+
 const PANEL = readVariable('panelUrl');
 const TOKEN = readVariable('token');
 
@@ -28,7 +37,8 @@ function readVariable(name) {
 	try {
 		const value = variables.get(name);
 		return typeof value === 'string' && value.length > 0 ? value : null;
-	} catch {
+	} catch (error) {
+		say(`cannot read ${name} from variables.json: ${error}`);
 		return null;
 	}
 }
@@ -42,37 +52,61 @@ function remember(event) {
 	held.push(event);
 }
 
-world.afterEvents.chatSend.subscribe((event) => {
-	remember({ kind: 'chat', player: event.sender.name, message: event.message });
-});
+/** Subscribes, and says which ones the game actually offered. */
+function listen(what, attach) {
+	try {
+		attach();
+		return what;
+	} catch (error) {
+		say(`no ${what} on this version: ${error}`);
+		return null;
+	}
+}
 
-world.afterEvents.playerSpawn.subscribe((event) => {
-	// Fired on respawn too, and only the first one is somebody arriving.
-	if (event.initialSpawn) remember({ kind: 'join', player: event.player.name });
-});
+const watching = [
+	listen('chat', () =>
+		world.afterEvents.chatSend.subscribe((event) => {
+			remember({ kind: 'chat', player: event.sender.name, message: event.message });
+		})
+	),
+	listen('join', () =>
+		world.afterEvents.playerSpawn.subscribe((event) => {
+			// Fired on respawn too, and only the first one is somebody arriving.
+			if (event.initialSpawn) remember({ kind: 'join', player: event.player.name });
+		})
+	),
+	listen('leave', () =>
+		world.afterEvents.playerLeave.subscribe((event) => {
+			remember({ kind: 'leave', player: event.playerName });
+		})
+	),
+	listen('death', () =>
+		world.afterEvents.entityDie.subscribe((event) => {
+			const who = event.deadEntity;
+			if (who?.typeId !== 'minecraft:player') return;
+			remember({ kind: 'death', player: who.name, message: `${who.name} died` });
+		})
+	)
+].filter(Boolean);
 
-world.beforeEvents.playerLeave.subscribe((event) => {
-	remember({ kind: 'leave', player: event.player.name });
-});
-
-world.afterEvents.entityDie.subscribe((event) => {
-	const who = event.deadEntity;
-	if (who?.typeId !== 'minecraft:player') return;
-	remember({ kind: 'death', player: who.name, message: `${who.name} died` });
-});
+say(`watching: ${watching.join(', ') || 'nothing'}`);
 
 /** Where everybody is, which is the whole point of the map. */
 function positions() {
 	const out = [];
-	for (const player of world.getAllPlayers()) {
-		const at = player.location;
-		out.push({
-			name: player.name,
-			x: Math.round(at.x * 100) / 100,
-			y: Math.round(at.y * 100) / 100,
-			z: Math.round(at.z * 100) / 100,
-			dimension: player.dimension.id
-		});
+	try {
+		for (const player of world.getAllPlayers()) {
+			const at = player.location;
+			out.push({
+				name: player.name,
+				x: Math.round(at.x * 100) / 100,
+				y: Math.round(at.y * 100) / 100,
+				z: Math.round(at.z * 100) / 100,
+				dimension: player.dimension.id
+			});
+		}
+	} catch (error) {
+		say(`cannot read where players are: ${error}`);
 	}
 	return out;
 }
@@ -97,13 +131,14 @@ async function checkIn() {
 		if (reply.status < 200 || reply.status >= 300) {
 			throw new Error(`panel answered ${reply.status}`);
 		}
+		if (complained) say('panel reachable again');
 		complained = false;
 	} catch (error) {
 		// Put them back at the front: they have not been delivered.
 		held = sending.concat(held).slice(-MOST_HELD);
 		if (!complained) {
 			complained = true;
-			console.warn(`[Crustation] cannot reach the panel: ${error}`);
+			say(`cannot reach the panel: ${error}`);
 		}
 	} finally {
 		talking = false;
@@ -111,12 +146,9 @@ async function checkIn() {
 }
 
 if (!PANEL || !TOKEN) {
-	console.warn(
-		'[Crustation] no panelUrl or token in variables.json, so the add-on is doing nothing. ' +
-			'Install it from the panel rather than by hand.'
-	);
+	say('no panelUrl or token in variables.json, so nothing is being sent. Install from the panel.');
 } else {
-	console.warn(`[Crustation] talking to ${PANEL}`);
+	say(`talking to ${PANEL} every ${EVERY} ticks`);
 	system.runInterval(() => {
 		checkIn();
 	}, EVERY);
