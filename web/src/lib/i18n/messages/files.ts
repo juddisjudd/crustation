@@ -15,6 +15,7 @@ export const files = {
 		download: 'Download',
 		rename: 'Rename',
 		unpack: 'Unpack here',
+		install: 'Install as an add-on',
 		delete: 'Delete',
 		more: 'More for {name}'
 	},
@@ -26,7 +27,11 @@ export const files = {
 	editor: {
 		save: 'Save',
 		saving: 'Saving…',
+		back: 'Back',
 		close: 'Close',
+		discard: 'Discard them',
+		discardTitle: 'Leave without saving?',
+		discardBody: 'Your changes to this file are lost.',
 		saved: 'Saved {name}',
 		unsaved: 'Unsaved changes',
 		tooBig: 'Too big or not text. Download it instead.'
@@ -43,7 +48,10 @@ export const files = {
 		renamed: 'Renamed to {name}',
 		deleted: 'Deleted {name}',
 		unpacked: 'Unpacked {name}',
-		uploaded: 'Uploaded {name}'
+		uploaded: 'Uploaded {name}',
+		installed: 'Installed {names}',
+		installedWhere:
+			'Put where the server reads it, and switched on for the world. It loads on the next start.'
 	},
 	failed: 'That did not work'
 } as const;

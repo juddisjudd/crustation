@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import FileIcon from '@lucide/svelte/icons/file';
@@ -6,6 +7,7 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import PackageOpenIcon from '@lucide/svelte/icons/package-open';
+	import PackagePlusIcon from '@lucide/svelte/icons/package-plus';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import UploadIcon from '@lucide/svelte/icons/upload';
@@ -36,6 +38,7 @@
 		type FileEntry,
 		type Listing
 	} from '$lib/api/files';
+	import { installPack, looksInstallable } from '$lib/api/packs';
 	import { bytes, dateTime } from '$lib/format';
 	import { t } from '$lib/i18n/index.svelte';
 
@@ -56,6 +59,8 @@
 
 	const crumbs = $derived(path ? path.split('/') : []);
 	const dirty = $derived(!!open && draft !== open.content);
+	/** The name on its own, since the editor already shows the folder above it. */
+	const openName = $derived(open?.path.split('/').pop() ?? '');
 
 	async function refresh() {
 		loadFailed = false;
@@ -74,7 +79,6 @@
 	});
 
 	function go(to: string) {
-		if (dirty) return;
 		open = null;
 		path = to;
 	}
@@ -91,6 +95,21 @@
 		} catch (err) {
 			toast.error(t('files.editor.tooBig'), { description: errorMessage(err) });
 		}
+	}
+
+	/** Leaving the editor. Anything unsaved is worth one question first. */
+	async function back() {
+		if (dirty) {
+			const ok = await confirm({
+				title: t('files.editor.discardTitle'),
+				description: t('files.editor.discardBody'),
+				confirmLabel: t('files.editor.discard'),
+				destructive: true
+			});
+			if (!ok) return;
+		}
+		open = null;
+		await refresh();
 	}
 
 	async function act(what: () => Promise<unknown>, done: string) {
@@ -156,6 +175,24 @@
 		);
 	}
 
+	async function install(entry: FileEntry) {
+		busy = true;
+		try {
+			const result = await installPack(server.id, joinPath(path, entry.name));
+			toast.success(
+				t('files.done.installed', {
+					names: result.installed.map((one) => one.name).join(', ')
+				}),
+				{ description: t('files.done.installedWhere') }
+			);
+			await refresh();
+		} catch (err) {
+			toast.error(t('files.failed'), { description: errorMessage(err) });
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function onUpload(event: Event & { currentTarget: HTMLInputElement }) {
 		const file = event.currentTarget.files?.[0];
 		event.currentTarget.value = '';
@@ -172,8 +209,7 @@
 		try {
 			const result = await saveFile(server.id, open.path, draft, open.modified);
 			open = { ...open, content: draft, ...result };
-			toast.success(t('files.editor.saved', { name: open.path }));
-			await refresh();
+			toast.success(t('files.editor.saved', { name: openName }));
 		} catch (err) {
 			toast.error(t('files.failed'), { description: errorMessage(err) });
 		} finally {
@@ -182,183 +218,208 @@
 	}
 </script>
 
-<svelte:head><title>{t('nav.tabs.files')} · {server.name} · Crustation</title></svelte:head>
+<svelte:head>
+	<title>{open ? openName : t('nav.tabs.files')} · {server.name} · Crustation</title>
+</svelte:head>
 
-<div class="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<Breadcrumb.Root>
-			<Breadcrumb.List>
-				<Breadcrumb.Item>
-					{#if path}
-						<Breadcrumb.Link
-							class="cursor-pointer"
-							onclick={() => go('')}
-							role="button"
-							tabindex={0}
-						>
-							{t('files.root')}
-						</Breadcrumb.Link>
-					{:else}
-						<Breadcrumb.Page>{t('files.root')}</Breadcrumb.Page>
-					{/if}
-				</Breadcrumb.Item>
-				{#each crumbs as part, index (index)}
-					{@const to = crumbs.slice(0, index + 1).join('/')}
-					<Breadcrumb.Separator />
+<div class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 md:px-8">
+	{#if open}
+		{@const file = open}
+		<div class="flex flex-wrap items-center justify-between gap-3">
+			<div class="flex min-w-0 items-center gap-3">
+				<Button variant="outline" size="sm" onclick={back}>
+					<ArrowLeftIcon />
+					{t('files.editor.back')}
+				</Button>
+				<span class="truncate font-mono text-sm" title={file.path}>{file.path}</span>
+			</div>
+			<div class="flex items-center gap-2">
+				{#if dirty}
+					<span class="text-xs text-warning">{t('files.editor.unsaved')}</span>
+				{/if}
+				<Button size="sm" onclick={save} disabled={saving || !dirty}>
+					{#if saving}<Spinner class="size-4" />{/if}
+					{saving ? t('files.editor.saving') : t('files.editor.save')}
+				</Button>
+			</div>
+		</div>
+
+		<CodeEditor
+			bind:value={draft}
+			filename={file.path}
+			class="mt-4 h-[calc(100svh-20rem)] min-h-72 overflow-hidden rounded-lg border"
+		/>
+	{:else}
+		<div class="flex flex-wrap items-center justify-between gap-3">
+			<Breadcrumb.Root>
+				<Breadcrumb.List>
 					<Breadcrumb.Item>
-						{#if index < crumbs.length - 1}
+						{#if path}
 							<Breadcrumb.Link
 								class="cursor-pointer"
-								onclick={() => go(to)}
+								onclick={() => go('')}
 								role="button"
 								tabindex={0}
 							>
-								{part}
+								{t('files.root')}
 							</Breadcrumb.Link>
 						{:else}
-							<Breadcrumb.Page>{part}</Breadcrumb.Page>
+							<Breadcrumb.Page>{t('files.root')}</Breadcrumb.Page>
 						{/if}
 					</Breadcrumb.Item>
-				{/each}
-			</Breadcrumb.List>
-		</Breadcrumb.Root>
-
-		<div class="flex items-center gap-2">
-			{#if busy}<Spinner class="size-4" />{/if}
-			<Button variant="outline" size="sm" onclick={() => make('directory')} disabled={busy}>
-				<FolderPlusIcon />
-				{t('files.actions.newFolder')}
-			</Button>
-			<Button variant="outline" size="sm" onclick={() => make('file')} disabled={busy}>
-				<FilePlusIcon />
-				{t('files.actions.newFile')}
-			</Button>
-			<Button variant="outline" size="sm" onclick={() => uploadInput?.click()} disabled={busy}>
-				<UploadIcon />
-				{t('files.actions.upload')}
-			</Button>
-			<input bind:this={uploadInput} type="file" class="hidden" onchange={onUpload} />
-		</div>
-	</div>
-
-	{#if loadFailed}
-		<Alert.Root variant="destructive" class="mt-6">
-			<Alert.Description>{t('files.loadFailed')}</Alert.Description>
-		</Alert.Root>
-	{:else if !listing}
-		<Skeleton class="mt-6 h-64 rounded-lg" />
-	{:else if listing.entries.length === 0}
-		<Empty.Root class="mt-6 rounded-lg border border-dashed py-16">
-			<Empty.Header>
-				<Empty.Media variant="icon"><FolderIcon /></Empty.Media>
-				<Empty.Title>{t('files.empty')}</Empty.Title>
-			</Empty.Header>
-		</Empty.Root>
-	{:else}
-		<div class="mt-6 overflow-hidden rounded-lg border">
-			<Table.Root>
-				<Table.Header>
-					<Table.Row class="bg-muted/50 hover:bg-muted/50">
-						<Table.Head>{t('files.columns.name')}</Table.Head>
-						<Table.Head class="hidden w-28 md:table-cell">{t('files.columns.size')}</Table.Head>
-						<Table.Head class="hidden w-48 md:table-cell">
-							{t('files.columns.modified')}
-						</Table.Head>
-						<Table.Head class="w-12"></Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each listing.entries as entry (entry.name)}
-						<Table.Row>
-							<Table.Cell>
-								<button
-									class="flex items-center gap-2 text-left hover:underline"
-									onclick={() => enter(entry)}
+					{#each crumbs as part, index (index)}
+						{@const to = crumbs.slice(0, index + 1).join('/')}
+						<Breadcrumb.Separator />
+						<Breadcrumb.Item>
+							{#if index < crumbs.length - 1}
+								<Breadcrumb.Link
+									class="cursor-pointer"
+									onclick={() => go(to)}
+									role="button"
+									tabindex={0}
 								>
-									{#if entry.kind === 'directory'}
-										<FolderIcon class="size-4 shrink-0 text-muted-foreground" />
-									{:else}
-										<FileIcon class="size-4 shrink-0 text-muted-foreground" />
-									{/if}
-									<span class="truncate">{entry.name}</span>
-								</button>
-							</Table.Cell>
-							<Table.Cell class="hidden text-sm text-muted-foreground tabular-nums md:table-cell">
-								{entry.kind === 'directory' ? '—' : bytes(entry.size)}
-							</Table.Cell>
-							<Table.Cell class="hidden text-sm text-muted-foreground md:table-cell">
-								{dateTime(entry.modified)}
-							</Table.Cell>
-							<Table.Cell>
-								<DropdownMenu.Root>
-									<DropdownMenu.Trigger>
-										{#snippet child({ props })}
-											<Button
-												{...props}
-												variant="ghost"
-												size="icon-sm"
-												aria-label={t('files.actions.more', { name: entry.name })}
-											>
-												<EllipsisIcon />
-											</Button>
-										{/snippet}
-									</DropdownMenu.Trigger>
-									<DropdownMenu.Content align="end">
-										<DropdownMenu.Item>
-											{#snippet child({ props })}
-												<a
-													{...props}
-													href={downloadUrl(server.id, joinPath(path, entry.name))}
-													download
-												>
-													<DownloadIcon />
-													{t('files.actions.download')}
-												</a>
-											{/snippet}
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onSelect={() => rename(entry)}>
-											<PencilIcon />
-											{t('files.actions.rename')}
-										</DropdownMenu.Item>
-										{#if entry.name.toLowerCase().endsWith('.zip')}
-											<DropdownMenu.Item onSelect={() => unpack(entry)}>
-												<PackageOpenIcon />
-												{t('files.actions.unpack')}
-											</DropdownMenu.Item>
-										{/if}
-										<DropdownMenu.Separator />
-										<DropdownMenu.Item variant="destructive" onSelect={() => remove(entry)}>
-											<Trash2Icon />
-											{t('files.actions.delete')}
-										</DropdownMenu.Item>
-									</DropdownMenu.Content>
-								</DropdownMenu.Root>
-							</Table.Cell>
-						</Table.Row>
+									{part}
+								</Breadcrumb.Link>
+							{:else}
+								<Breadcrumb.Page>{part}</Breadcrumb.Page>
+							{/if}
+						</Breadcrumb.Item>
 					{/each}
-				</Table.Body>
-			</Table.Root>
-		</div>
-	{/if}
+				</Breadcrumb.List>
+			</Breadcrumb.Root>
 
-	{#if open}
-		<section class="mt-6 overflow-hidden rounded-lg border bg-card">
-			<div class="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
-				<span class="truncate font-mono text-xs">{open.path}</span>
-				<div class="flex items-center gap-2">
-					{#if dirty}
-						<span class="text-xs text-warning">{t('files.editor.unsaved')}</span>
-					{/if}
-					<Button variant="outline" size="sm" onclick={() => (open = null)}>
-						{t('files.editor.close')}
-					</Button>
-					<Button size="sm" onclick={save} disabled={saving || !dirty}>
-						{#if saving}<Spinner class="size-4" />{/if}
-						{saving ? t('files.editor.saving') : t('files.editor.save')}
-					</Button>
-				</div>
+			<div class="flex items-center gap-2">
+				{#if busy}<Spinner class="size-4" />{/if}
+				<Button variant="outline" size="sm" onclick={() => make('directory')} disabled={busy}>
+					<FolderPlusIcon />
+					{t('files.actions.newFolder')}
+				</Button>
+				<Button variant="outline" size="sm" onclick={() => make('file')} disabled={busy}>
+					<FilePlusIcon />
+					{t('files.actions.newFile')}
+				</Button>
+				<Button variant="outline" size="sm" onclick={() => uploadInput?.click()} disabled={busy}>
+					<UploadIcon />
+					{t('files.actions.upload')}
+				</Button>
+				<input
+					bind:this={uploadInput}
+					type="file"
+					class="hidden"
+					accept=".mcaddon,.mcpack,.mcworld,.zip,*"
+					onchange={onUpload}
+				/>
 			</div>
-			<CodeEditor bind:value={draft} filename={open.path} class="max-h-[32rem] min-h-[28rem]" />
-		</section>
+		</div>
+
+		{#if loadFailed}
+			<Alert.Root variant="destructive" class="mt-6">
+				<Alert.Description>{t('files.loadFailed')}</Alert.Description>
+			</Alert.Root>
+		{:else if !listing}
+			<Skeleton class="mt-6 h-64 rounded-lg" />
+		{:else if listing.entries.length === 0}
+			<Empty.Root class="mt-6 rounded-lg border border-dashed py-16">
+				<Empty.Header>
+					<Empty.Media variant="icon"><FolderIcon /></Empty.Media>
+					<Empty.Title>{t('files.empty')}</Empty.Title>
+				</Empty.Header>
+			</Empty.Root>
+		{:else}
+			<div class="mt-6 overflow-hidden rounded-lg border">
+				<Table.Root>
+					<Table.Header>
+						<Table.Row class="bg-muted/50 hover:bg-muted/50">
+							<Table.Head>{t('files.columns.name')}</Table.Head>
+							<Table.Head class="hidden w-28 md:table-cell">{t('files.columns.size')}</Table.Head>
+							<Table.Head class="hidden w-48 md:table-cell">
+								{t('files.columns.modified')}
+							</Table.Head>
+							<Table.Head class="w-12"></Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each listing.entries as entry (entry.name)}
+							{@const pack = entry.kind === 'file' && looksInstallable(entry.name)}
+							<Table.Row>
+								<Table.Cell>
+									<button
+										class="flex items-center gap-2 text-left hover:underline"
+										onclick={() => enter(entry)}
+									>
+										{#if entry.kind === 'directory'}
+											<FolderIcon class="size-4 shrink-0 text-muted-foreground" />
+										{:else if pack}
+											<PackagePlusIcon class="size-4 shrink-0 text-muted-foreground" />
+										{:else}
+											<FileIcon class="size-4 shrink-0 text-muted-foreground" />
+										{/if}
+										<span class="truncate">{entry.name}</span>
+									</button>
+								</Table.Cell>
+								<Table.Cell class="hidden text-sm text-muted-foreground tabular-nums md:table-cell">
+									{entry.kind === 'directory' ? '—' : bytes(entry.size)}
+								</Table.Cell>
+								<Table.Cell class="hidden text-sm text-muted-foreground md:table-cell">
+									{dateTime(entry.modified)}
+								</Table.Cell>
+								<Table.Cell>
+									<DropdownMenu.Root>
+										<DropdownMenu.Trigger>
+											{#snippet child({ props })}
+												<Button
+													{...props}
+													variant="ghost"
+													size="icon-sm"
+													aria-label={t('files.actions.more', { name: entry.name })}
+												>
+													<EllipsisIcon />
+												</Button>
+											{/snippet}
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Content align="end">
+											{#if pack}
+												<DropdownMenu.Item onSelect={() => install(entry)}>
+													<PackagePlusIcon />
+													{t('files.actions.install')}
+												</DropdownMenu.Item>
+												<DropdownMenu.Separator />
+											{/if}
+											<DropdownMenu.Item>
+												{#snippet child({ props })}
+													<a
+														{...props}
+														href={downloadUrl(server.id, joinPath(path, entry.name))}
+														download
+													>
+														<DownloadIcon />
+														{t('files.actions.download')}
+													</a>
+												{/snippet}
+											</DropdownMenu.Item>
+											<DropdownMenu.Item onSelect={() => rename(entry)}>
+												<PencilIcon />
+												{t('files.actions.rename')}
+											</DropdownMenu.Item>
+											{#if entry.name.toLowerCase().endsWith('.zip')}
+												<DropdownMenu.Item onSelect={() => unpack(entry)}>
+													<PackageOpenIcon />
+													{t('files.actions.unpack')}
+												</DropdownMenu.Item>
+											{/if}
+											<DropdownMenu.Separator />
+											<DropdownMenu.Item variant="destructive" onSelect={() => remove(entry)}>
+												<Trash2Icon />
+												{t('files.actions.delete')}
+											</DropdownMenu.Item>
+										</DropdownMenu.Content>
+									</DropdownMenu.Root>
+								</Table.Cell>
+							</Table.Row>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+			</div>
+		{/if}
 	{/if}
 </div>

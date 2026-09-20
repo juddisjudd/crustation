@@ -181,6 +181,12 @@
 		overflow: auto;
 	}
 
+	/* Fill the box it is given, so a short file still gets the whole editor
+	   rather than a band of text above dead space. */
+	.cm-host :global(.cm-editor) {
+		height: 100%;
+	}
+
 	:global(.dark) .cm-host {
 		--cm-comment: #8b949e;
 		--cm-string: #7fd1b9;
