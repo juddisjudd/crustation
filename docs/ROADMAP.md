@@ -60,6 +60,22 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   than writing half a row, and every face is their own head.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
+- Acting on a player from the list: operator on and off, the operator level or Bedrock permission,
+  kick, ban and pardon, give an item, teleport to somebody or to a spot, and a quiet word. A
+  running server gets the command; a stopped one gets the file, so who is banned and who is an
+  operator can be settled with nothing running. Everybody any list names shows in one table with
+  their badges, so a ban is one menu rather than four tabs.
+- The message of the day, edited where it is read: a palette for the colour codes, the line the
+  game will actually show, and a warning when it is longer than the list will fit.
+- A chat tab: what people said, who came and went, and what they earned, lifted out of the console
+  stream, with a box to talk back as the server. Bedrock writes no chat to its console, and the tab
+  says so rather than looking broken.
+- A map tab. It finds squaremap, Pl3xMap, BlueMap or Dynmap where the server keeps it, reads the
+  port from that project's own settings and embeds the real map. With none installed it falls back
+  to asking the server over RCON where everybody is standing and plotting that on a grid, which
+  needs no plugin and draws no terrain.
+- The console reads like a log: the timestamp, thread and level dimmed, chat, addresses, quoted
+  text and numbers picked out, all of it behind a switch for anyone who would rather it plain.
 
 ## Next
 

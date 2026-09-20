@@ -64,8 +64,50 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | POST   | `/servers/{id}/rcon`    | Turns RCON on: sets `enable-rcon`, picks a free port and writes a password into `server.properties`. `{regenerate_password}` replaces one that is already there. Returns `{port, restart_required}`. `409 CONFLICT` when the server has not written `server.properties` yet. Requires `CONFIG`. |
 | GET    | `/servers/{id}/logs`    | Log files: `{files: [{name, size, modified}]}`; `?file=` returns its contents.                                                                                                                                                                                                                  |
 | GET    | `/servers/{id}/stats`   | History: `?from=&to=&resolution=` → `{points: [{at, cpu, memory_bytes, memory_percent, players}]}`.                                                                                                                                                                                             |
-| GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists}`. Requires `PLAYERS`.                                                                                                                                                                                                                             |
+| GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. Requires `PLAYERS`. |
+| POST   | `/servers/{id}/player-actions` | One thing to do about one player. Requires `PLAYERS`, or `COMMANDS` for `give`, `teleport`, `say` and `whisper`. |
+| GET    | `/servers/{id}/map`     | A web map installed on the server: `{found}` alone, or `{found, id, name, port, enabled, answering, config}`. Requires `CONSOLE`. |
+| GET    | `/servers/{id}/positions` | Where everybody is standing, asked of the server over RCON: `{supported, reason?, players: [{name, x, y, z, dimension}]}`. Requires `CONSOLE`. |
 | GET/POST/DELETE | `/servers/{id}/players/{list}` | One of the files the game keeps beside the world. `POST {value, reason?, level?}` adds, `DELETE {value}` removes.                                                                                                                                                             |
+
+`POST /servers/{id}/player-actions` takes one `action` and whatever that action needs:
+
+```json
+{ "action": "op",       "player": "Notch" }
+{ "action": "deop",     "player": "Notch" }
+{ "action": "kick",     "player": "Notch", "reason": "Back later" }
+{ "action": "ban",      "player": "Notch", "reason": "Griefing" }
+{ "action": "pardon",   "player": "Notch" }
+{ "action": "rank",     "player": "Notch", "rank": "3" }
+{ "action": "give",     "player": "Notch", "item": "diamond", "count": 8 }
+{ "action": "teleport", "player": "Notch", "to": "Steve" }
+{ "action": "teleport", "player": "Notch", "to": { "x": 100, "y": 64, "z": -200 } }
+{ "action": "say",      "message": "Restarting in five minutes" }
+{ "action": "whisper",  "player": "Notch", "message": "Nice build" }
+```
+
+The reply is `{via, ran, output?, restart_required}`.
+
+- A running server gets the command, over RCON when it has it and stdin when it does not.
+- A stopped server gets the file instead: `op`, `deop`, `ban` and `pardon` each have a list to
+  write, so they work either way. The rest answer `409 CONFLICT`, because there is nobody to kick.
+- `rank` is always the file. Java reads `ops.json` at start and Bedrock has no permission command,
+  so a level cannot be set in game; the reply says `restart_required` while the server is up.
+- `rank` is 1 to 4 on Java and `visitor`, `member` or `operator` on Bedrock.
+- Bedrock has no ban command and keeps no ban list, so `ban` and `pardon` answer `409 CONFLICT`.
+- Every argument is refused if it carries a control character. A command leaves over stdin as one
+  line, so a line break in a name would be a second command.
+
+`GET /servers/{id}/map` looks for a web map somebody installed on the server and reads the port
+out of its own settings file, so the interface can show the real thing rather than an imitation of
+it. It knows squaremap, Pl3xMap, BlueMap and Dynmap, as a plugin or as a mod. `answering` is
+proven by connecting, so a plugin that has not started yet reads as false.
+
+`GET /servers/{id}/positions` asks the running server where everybody is, with `list` and then
+`data get entity <name> Pos`. It needs RCON, because stdin sends commands but reads nothing back,
+and it needs Java, because Bedrock has no RCON at all. It draws no terrain: it is the fallback for
+a server with no map plugin, not a replacement for one.
+
 
 A server object is flat and honest about what is derived:
 
