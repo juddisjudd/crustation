@@ -7,7 +7,7 @@ Crab, Rust, shells. The name wrote itself.
 
 > **Built with AI, directed by a human.** Most of the code here is written by an AI assistant
 > working to decisions I make: the architecture, the API contract in [docs/API.md](docs/API.md),
-> and the order of work in [docs/ROADMAP.md](docs/ROADMAP.md). I review what lands.
+> and the order of work in [docs/ROADMAP.md](docs/ROADMAP.md).
 >
 > This is not prompt-and-ship. Nothing merges that fails `cargo fmt`, `clippy -D warnings`, the
 > test suite or the interface build, and features are exercised against a running panel before
