@@ -125,7 +125,7 @@
 
 <svelte:head><title>{t('nav.tabs.chat')} · {server.name} · Crustation</title></svelte:head>
 
-<div class="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-4 py-6 md:px-8">
+<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6 md:px-8">
 	{#if bedrock}
 		<Alert.Root>
 			<Alert.Description>{t('chat.bedrock')}</Alert.Description>
@@ -133,7 +133,7 @@
 	{/if}
 
 	<div
-		class="relative flex h-[calc(100svh-16rem)] min-h-90 flex-col overflow-hidden rounded-lg border bg-card"
+		class="relative flex h-[calc(100svh-20rem)] max-h-120 min-h-64 flex-col overflow-hidden rounded-lg border bg-card"
 	>
 		<div
 			bind:this={viewport}
