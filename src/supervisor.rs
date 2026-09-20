@@ -286,9 +286,14 @@ impl Supervisor {
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
     {
         let events = self.events.clone();
+        let db = self.db.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(reader).lines();
             while let Ok(Some(text)) = lines.next_line().await {
+                // The only place a Bedrock server ever says an Xbox id out loud.
+                if let Some((name, xuid)) = xuid_in(&text) {
+                    remember_xuid(&db, id, &name, &xuid).await;
+                }
                 let mut guard = instance.lock().await;
                 let line = guard.push(stream, text, backlog);
                 // A server that prints "Done" is up; good enough across the games we run.
@@ -576,6 +581,40 @@ pub enum Flag {
     Updating,
 }
 
+/// Bedrock announces an arrival as
+/// `Player connected: ohitsjudd, xuid: 2535458356136740`. It is the only time
+/// the server says an Xbox id, and permissions.json is keyed by nothing else,
+/// so the panel writes it down when it goes past.
+fn xuid_in(line: &str) -> Option<(String, String)> {
+    let (_, rest) = line.split_once("Player connected:")?;
+    let (name, tail) = rest.split_once(", xuid:")?;
+    let name = name.trim();
+    let xuid = tail.trim();
+    let usable = !name.is_empty() && xuid.len() >= 10 && xuid.chars().all(|c| c.is_ascii_digit());
+    usable.then(|| (name.to_string(), xuid.to_string()))
+}
+
+/// Kept beside the name, in the column Java uses for its own player id.
+async fn remember_xuid(db: &crate::db::Db, id: Uuid, name: &str, xuid: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "INSERT INTO server_players (server_id, name, uuid, first_seen, last_seen, online)
+         VALUES (?, ?, ?, ?, ?, 1)
+         ON CONFLICT(server_id, name) DO UPDATE SET uuid = excluded.uuid,
+                                                    last_seen = excluded.last_seen",
+    )
+    .bind(id.to_string())
+    .bind(name)
+    .bind(xuid)
+    .bind(&now)
+    .bind(&now)
+    .execute(db)
+    .await;
+    if let Err(error) = result {
+        tracing::debug!(%error, "could not write down an Xbox id");
+    }
+}
+
 fn looks_ready(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
     lower.contains("done (") || lower.contains("server started") || lower.contains("for help, type")
@@ -593,4 +632,46 @@ fn kill_pid(pid: u32) {
     let _ = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .output();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bedrock_arrival_gives_up_its_xbox_id() {
+        let line =
+            "[2026-09-20 12:34:56:789 INFO] Player connected: ohitsjudd, xuid: 2535458356136740";
+        assert_eq!(
+            xuid_in(line),
+            Some(("ohitsjudd".to_string(), "2535458356136740".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_name_with_a_space_in_it_still_reads() {
+        let line =
+            "[2026-09-20 12:34:56:789 INFO] Player connected: Some One, xuid: 2535000000000001";
+        assert_eq!(
+            xuid_in(line),
+            Some(("Some One".to_string(), "2535000000000001".to_string()))
+        );
+    }
+
+    #[test]
+    fn anything_else_gives_up_nothing() {
+        assert!(xuid_in("[INFO] Player disconnected: ohitsjudd, xuid: 2535458356136740").is_none());
+        assert!(xuid_in("[INFO] Server started.").is_none());
+        assert!(xuid_in("Player connected: nobody, xuid: not-a-number").is_none());
+        assert!(xuid_in("Player connected: , xuid: 2535458356136740").is_none());
+    }
+
+    #[test]
+    fn a_server_that_says_done_is_up() {
+        assert!(looks_ready(
+            "[12:00:00] [Server thread/INFO]: Done (4.5s)! For help, type \"help\""
+        ));
+        assert!(looks_ready("[INFO] Server started."));
+        assert!(!looks_ready("[INFO] Preparing level"));
+    }
 }

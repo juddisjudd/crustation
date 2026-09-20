@@ -161,7 +161,7 @@ async fn overview(
 
     // So a row can say at a glance who is an operator and who is shut out,
     // rather than making somebody open each list to find out.
-    let known_by_id = xuid_names(&directory, &kind).await;
+    let known_by_id = xuid_names(&directory, &kind, Some((&state.db, id))).await;
     let mut operators = Vec::new();
     let mut banned = Vec::new();
     let mut listed: Vec<String> = Vec::new();
@@ -264,6 +264,7 @@ async fn add(
         &value,
         body.reason,
         body.level,
+        Some((&state.db, id)),
     )
     .await?;
 
@@ -290,8 +291,9 @@ async fn push_entry(
     value: &str,
     reason: Option<String>,
     level: Option<i64>,
+    seen: Option<(&crate::db::Db, Uuid)>,
 ) -> Result<(), ApiError> {
-    let value = &as_key(directory, kind, wanted, value).await?;
+    let value = &as_key(directory, kind, wanted, value, seen).await?;
     let mut rows = load_list(directory, wanted.file).await?;
     if rows
         .iter()
@@ -345,10 +347,11 @@ async fn drop_entry(
     kind: &str,
     wanted: &Kind,
     value: &str,
+    seen: Option<(&crate::db::Db, Uuid)>,
 ) -> Result<bool, ApiError> {
     // Taking a row out by a name it does not carry should still work, so resolve
     // it where we can and fall back to what was asked for where we cannot.
-    let resolved = as_key(directory, kind, wanted, value)
+    let resolved = as_key(directory, kind, wanted, value, seen)
         .await
         .unwrap_or_else(|_| value.to_string());
     let value = resolved.as_str();
@@ -382,7 +385,7 @@ async fn remove(
     let wanted = find(&kind, &list).ok_or_else(|| ApiError::not_found("List"))?;
 
     let value = body.value.trim();
-    drop_entry(&directory, &kind, &wanted, value).await?;
+    drop_entry(&directory, &kind, &wanted, value, Some((&state.db, id))).await?;
     super::audit(
         &state,
         Some(&identity.user),
@@ -603,7 +606,7 @@ async fn act(
             // way, and it lands on the next start.
             let name = safe("player", player)?;
             let rank = safe("rank", rank)?;
-            let changed = rank_in_file(&state, &directory, kind, &name, &rank).await?;
+            let changed = rank_in_file(&state, id, &directory, kind, &name, &rank).await?;
             super::audit(
                 &state,
                 Some(&identity.user),
@@ -670,6 +673,7 @@ async fn act(
         }
         let done = apply_offline(
             &state,
+            id,
             &identity.user.username,
             &directory,
             kind,
@@ -732,11 +736,28 @@ fn is_xuid(value: &str) -> bool {
 async fn xuid_names(
     directory: &std::path::Path,
     kind: &str,
+    seen: Option<(&crate::db::Db, Uuid)>,
 ) -> std::collections::HashMap<String, String> {
     let mut found = std::collections::HashMap::new();
     if kind != "minecraft_bedrock" {
         return found;
     }
+
+    // Anyone the console announced, which covers players the allow list does
+    // not name because the server is not running one.
+    if let Some((db, id)) = seen {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT uuid, name FROM server_players WHERE server_id = ? AND uuid IS NOT NULL",
+        )
+        .bind(id.to_string())
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+        for (xuid, name) in rows {
+            found.insert(xuid, name);
+        }
+    }
+
     for row in load_list(directory, "allowlist.json")
         .await
         .unwrap_or_default()
@@ -758,11 +779,12 @@ async fn as_key(
     kind: &str,
     wanted: &Kind,
     value: &str,
+    seen: Option<(&crate::db::Db, Uuid)>,
 ) -> Result<String, ApiError> {
     if wanted.key != "xuid" || is_xuid(value) {
         return Ok(value.to_string());
     }
-    let found = xuid_names(directory, kind)
+    let found = xuid_names(directory, kind, seen)
         .await
         .into_iter()
         .find(|(_, name)| name.eq_ignore_ascii_case(value));
@@ -779,6 +801,7 @@ async fn as_key(
 
 async fn apply_offline(
     state: &AppState,
+    id: Uuid,
     actor: &str,
     directory: &std::path::Path,
     kind: &str,
@@ -797,17 +820,39 @@ async fn apply_offline(
         Offline::None => Ok(String::new()),
         Offline::Leave(slug) => {
             let wanted = list(slug)?;
-            drop_entry(directory, kind, &wanted, player).await?;
+            drop_entry(directory, kind, &wanted, player, Some((&state.db, id))).await?;
             Ok(format!("took {player} out of {}", wanted.file))
         }
         Offline::Join(slug) => {
             let wanted = list(slug)?;
-            push_entry(state, actor, directory, kind, &wanted, player, None, None).await?;
+            push_entry(
+                state,
+                actor,
+                directory,
+                kind,
+                &wanted,
+                player,
+                None,
+                None,
+                Some((&state.db, id)),
+            )
+            .await?;
             Ok(format!("wrote {player} into {}", wanted.file))
         }
         Offline::Ban(reason) => {
             let wanted = list("banned")?;
-            push_entry(state, actor, directory, kind, &wanted, player, reason, None).await?;
+            push_entry(
+                state,
+                actor,
+                directory,
+                kind,
+                &wanted,
+                player,
+                reason,
+                None,
+                Some((&state.db, id)),
+            )
+            .await?;
             Ok(format!("wrote {player} into {}", wanted.file))
         }
     }
@@ -817,6 +862,7 @@ async fn apply_offline(
 /// neither edition will take it as a command.
 async fn rank_in_file(
     state: &AppState,
+    id: Uuid,
     directory: &std::path::Path,
     kind: &str,
     name: &str,
@@ -824,7 +870,7 @@ async fn rank_in_file(
 ) -> Result<String, ApiError> {
     let bedrock = kind == "minecraft_bedrock";
     let wanted = find(kind, "operators").ok_or_else(|| ApiError::not_found("List"))?;
-    let resolved = as_key(directory, kind, &wanted, name).await?;
+    let resolved = as_key(directory, kind, &wanted, name, Some((&state.db, id))).await?;
     let name = resolved.as_str();
 
     let value: Value = if bedrock {
@@ -866,6 +912,7 @@ async fn rank_in_file(
                 None,
                 // Only Java carries a numeric level here.
                 if bedrock { None } else { value.as_i64() },
+                Some((&state.db, id)),
             )
             .await?;
             if bedrock {
@@ -923,6 +970,7 @@ mod tests {
             "minecraft_bedrock",
             &bedrock_operators(),
             "ohitsjudd",
+            None,
         )
         .await;
         assert_eq!(found.expect("resolved").as_str(), "2535458356136740");
@@ -931,7 +979,14 @@ mod tests {
     #[tokio::test]
     async fn a_name_with_no_id_yet_is_refused_rather_than_written() {
         let root = sandbox("unknown");
-        let found = as_key(&root, "minecraft_bedrock", &bedrock_operators(), "ZoooDuck").await;
+        let found = as_key(
+            &root,
+            "minecraft_bedrock",
+            &bedrock_operators(),
+            "ZoooDuck",
+            None,
+        )
+        .await;
         assert!(found.is_err());
     }
 
@@ -943,6 +998,7 @@ mod tests {
             "minecraft_bedrock",
             &bedrock_operators(),
             "2535000000000001",
+            None,
         )
         .await;
         assert_eq!(found.expect("kept").as_str(), "2535000000000001");
@@ -952,14 +1008,14 @@ mod tests {
     async fn a_java_list_takes_the_name_as_typed() {
         let root = sandbox("java");
         let ops = find("minecraft_java", "operators").expect("Java keeps an operator list");
-        let found = as_key(&root, "minecraft_java", &ops, "Notch").await;
+        let found = as_key(&root, "minecraft_java", &ops, "Notch", None).await;
         assert_eq!(found.expect("kept").as_str(), "Notch");
     }
 
     #[tokio::test]
     async fn an_xbox_id_reads_back_as_the_name_it_belongs_to() {
         let root = sandbox("names");
-        let known = xuid_names(&root, "minecraft_bedrock").await;
+        let known = xuid_names(&root, "minecraft_bedrock", None).await;
         assert_eq!(
             known.get("2535458356136740").map(String::as_str),
             Some("ohitsjudd")
