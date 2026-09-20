@@ -14,23 +14,57 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 - WebSocket with per-connection topics and permission checks on every event.
 - REST: auth, server list/detail/update/delete, actions, command, console, panel stats, audit,
   Java discovery.
+- Svelte interface on `/api/v1` with topic subscriptions: sign-in, overview, server page, live
+  console.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
 ## Next
 
-1. **Interface port.** The Svelte app currently speaks Crafty's API. Point it at `/api/v1`, swap
-   the WebSocket to topic subscriptions, and delete what no longer applies.
-2. **Server creation.** Providers for Vanilla, Paper, Purpur, Fabric, NeoForge and Bedrock;
+1. **Server creation.** Providers for Vanilla, Paper, Purpur, Fabric, NeoForge and Bedrock;
    download with progress, EULA handling, first-run setup; import from a zip or an existing folder.
-3. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
-4. **Backups.** Configs, runs with progress, retention, restore, download, excludes.
-5. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation.
-6. **Players.** Online list, history, ban/kick/op through the console; query for the status page.
-7. **Users and roles.** Administration screens and their endpoints.
-8. **Webhooks.** Discord, Slack, Mattermost, Teams; event triggers; test send.
-9. **Metrics.** Range queries with downsampling behind the charts.
-10. **Public status page**, panel settings, branding.
+   Mojang puts the Bedrock download behind bot protection, so that provider also needs a paste-a-URL
+   or upload-the-zip path.
+2. **RCON and protocol status.** RCON gives Java servers command responses instead of console echo,
+   so `/list`, `/tps` and `/whitelist list` return data the panel can use. Server List Ping on Java
+   and the RakNet unconnected ping on Bedrock report MOTD, version, player count and latency over
+   the wire, including for servers the panel did not start; console parsing stays as the fallback.
+   Bedrock has no RCON, so stdin remains its only command path and the interface should say so.
+3. **server.properties editor.** A typed form with descriptions, validation, a diff before apply,
+   and a badge on the keys that need a restart. Same file on Java and Bedrock, different keys.
+4. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
+5. **Backups.** Configs, runs with progress, retention, restore, download, excludes. Taken
+   automatically before anything destructive: version changes, content installs, restores.
+6. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
+   restart broadcasts a warning ladder in game before it stops the server.
+7. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
+   `banned-ips.json` on Java, `allowlist.json` and `permissions.json` on Bedrock (keyed by XUID),
+   all as editable tables with username to UUID lookup and player heads.
+8. **Users and roles.** Administration screens and their endpoints, plus invite links that grant a
+   scoped per-server role, so an owner can hand a friend console-only access.
+9. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
+   rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
+   Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
+   and the End.
+10. **Guarded upgrades.** Back up, swap the jar, start, and roll back on its own if the server never
+    reaches ready.
+11. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
+    failed-backup notifications, and browser push through the manifest the interface already ships.
+12. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
+    RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
+13. **Public status page**, panel settings, branding.
+
+## Alongside
+
+Unblocked by the list above, and most of what makes the panel feel finished:
+
+- Console: level filter chips, regex search with highlighting, section-sign colour codes, a
+  timestamp toggle, download the buffer.
+- Saved command macros per server, as buttons.
+- Bulk actions across servers, reachable from the command palette.
+- JVM flag presets sized to the memory limit, instead of a hand-written command line.
+- A warning when two servers claim the same port.
+- Audit entries on the server page: who did what, and when.
 
 ## Later
 
