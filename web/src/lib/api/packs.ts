@@ -11,6 +11,8 @@ export interface Pack {
 	version: number[];
 	/** Whether the world is told to load it. */
 	activated: boolean;
+	/** Whether the server came with it, rather than anybody choosing it. */
+	stock: boolean;
 }
 
 export interface World {

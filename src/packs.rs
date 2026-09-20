@@ -161,6 +161,41 @@ pub struct Installed {
     pub version: Vec<i64>,
     /// Whether the world was told to load it.
     pub activated: bool,
+    /// Whether this is one the server came with rather than one anybody chose.
+    pub stock: bool,
+}
+
+/// Whether a pack folder is one Bedrock ships with itself.
+///
+/// A dedicated server unpacks dozens of them — chemistry once per game version,
+/// the vanilla pack, the editor, the script libraries — and nobody installed
+/// any of them, so a list that shows them buries the one pack somebody actually
+/// added. Judged by the folder name, which is Mojang's to choose and stable:
+/// the version suffix comes off, and what is left is matched against the names
+/// the server ships under.
+pub fn is_stock(folder: &str) -> bool {
+    const EXACT: [&str; 5] = [
+        "vanilla",
+        "chemistry",
+        "editor",
+        "server_library",
+        "server_ui_library",
+    ];
+    const STARTS: [&str; 4] = ["vanilla_", "chemistry_", "experimental_", "editor_"];
+
+    let lower = folder.to_ascii_lowercase();
+    // `chemistry_1.20.50` is the 1.20.50 copy of `chemistry`, not its own pack.
+    let stem = lower
+        .rsplit_once('_')
+        .filter(|(_, tail)| {
+            !tail.is_empty()
+                && tail.chars().all(|one| one.is_ascii_digit() || one == '.')
+                && tail.contains(|one: char| one.is_ascii_digit())
+        })
+        .map(|(head, _)| head)
+        .unwrap_or(lower.as_str());
+
+    EXACT.contains(&stem) || STARTS.iter().any(|one| stem.starts_with(one))
 }
 
 /// Unpacks an add-on into the folders the server reads, and tells the world to
@@ -305,6 +340,8 @@ fn unpack_into(
             uuid: Some(manifest.uuid),
             version: manifest.version,
             activated,
+            // Nothing arriving through here came with the server.
+            stock: false,
         });
     }
 
@@ -352,6 +389,7 @@ fn unpack_into(
             // Nothing is loaded until level-name points at it, which is the
             // caller's to decide.
             activated: false,
+            stock: false,
         });
     }
 
@@ -373,6 +411,7 @@ fn unpack_into(
             version: Vec::new(),
             // Java loads what is in the folder; there is no list to add it to.
             activated: true,
+            stock: false,
         });
     }
 
@@ -528,11 +567,17 @@ pub fn installed(server: &Path, level: &str, bedrock: bool) -> Vec<Installed> {
                 },
                 uuid,
                 version: manifest.map(|one| one.version).unwrap_or_default(),
+                stock: bedrock && is_stock(&name),
             });
         }
     }
 
-    out.sort_by_key(|one| one.name.to_lowercase());
+    // What somebody added first, then the several dozen the server came with.
+    out.sort_by(|left, right| {
+        left.stock
+            .cmp(&right.stock)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
     out
 }
 
@@ -827,6 +872,49 @@ mod tests {
         let rows: Vec<serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn the_packs_a_bedrock_server_unpacks_for_itself_are_stock() {
+        for folder in [
+            "vanilla",
+            "vanilla_1.21.0",
+            "vanilla_music",
+            "chemistry",
+            "chemistry_1.20.50",
+            "chemistry_1.26.40",
+            "editor",
+            "server_library",
+            "server_ui_library",
+            "experimental_gametest",
+            "VANILLA",
+        ] {
+            assert!(is_stock(folder), "{folder} ships with the server");
+        }
+    }
+
+    #[test]
+    fn a_pack_somebody_installed_is_not_stock() {
+        for folder in [
+            "Shiny-Behaviours",
+            "my-vanilla-tweaks",
+            "chemistry-plus",
+            "server",
+            "library",
+            "Second-Add-on",
+            "editors-choice",
+        ] {
+            assert!(!is_stock(folder), "{folder} is somebody's own");
+        }
+    }
+
+    #[test]
+    fn a_version_suffix_comes_off_but_a_word_does_not() {
+        // `chemistry_1.20.50` is that version of chemistry.
+        assert!(is_stock("chemistry_1.20.50"));
+        // `server_library` is its own name, not `server` version `library`.
+        assert!(is_stock("server_library"));
+        assert!(!is_stock("shiny_1.0.0"));
     }
 
     #[test]

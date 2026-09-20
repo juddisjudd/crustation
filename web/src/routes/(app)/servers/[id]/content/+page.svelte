@@ -8,6 +8,7 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import { Spinner } from '$lib/components/ui/spinner/index.js';
+	import { Switch } from '$lib/components/ui/switch/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Empty from '$lib/components/ui/empty/index.js';
@@ -43,6 +44,12 @@
 	/** An add-on waiting on the answer to "which world?". */
 	let pending = $state.raw<File | null>(null);
 	let target = $state('');
+
+	// A Bedrock server unpacks dozens of its own packs, which would bury the one
+	// somebody added, so they are folded away until asked for.
+	let showStock = $state(false);
+	const stockCount = $derived((packs ?? []).filter((one) => one.stock).length);
+	const shown = $derived((packs ?? []).filter((one) => showStock || !one.stock));
 
 	async function refresh(id: string) {
 		try {
@@ -201,15 +208,27 @@
 	{/if}
 
 	<section class="space-y-3">
-		<h2 class="text-sm font-medium">{t('content.packs')}</h2>
+		<div class="flex flex-wrap items-center justify-between gap-3">
+			<h2 class="text-sm font-medium">{t('content.packs')}</h2>
+			{#if stockCount}
+				<div class="flex items-center gap-2">
+					<Switch id="show-stock" bind:checked={showStock} />
+					<Label for="show-stock" class="text-xs font-normal text-muted-foreground">
+						{showStock ? t('content.showStock') : t('content.stockHidden', { count: stockCount })}
+					</Label>
+				</div>
+			{/if}
+		</div>
 		{#if !packs}
 			<Skeleton class="h-40 rounded-lg" />
-		{:else if packs.length === 0}
+		{:else if shown.length === 0}
 			<Empty.Root class="rounded-lg border border-dashed py-12">
 				<Empty.Header>
 					<Empty.Media variant="icon"><BoxIcon /></Empty.Media>
-					<Empty.Title>{t('content.noPacks')}</Empty.Title>
-					<Empty.Description>{t('content.noPacksHint')}</Empty.Description>
+					<Empty.Title>{stockCount ? t('content.onlyStock') : t('content.noPacks')}</Empty.Title>
+					<Empty.Description>
+						{stockCount ? t('content.onlyStockHint') : t('content.noPacksHint')}
+					</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>
 		{:else}
@@ -223,10 +242,17 @@
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
-						{#each packs as pack (pack.path)}
+						{#each shown as pack (pack.path)}
 							<Table.Row>
 								<Table.Cell>
-									<div class="font-medium">{pack.name}</div>
+									<div class="flex items-center gap-2">
+										<span class="font-medium">{pack.name}</span>
+										{#if pack.stock}
+											<Badge variant="outline" class="text-muted-foreground">
+												{t('content.stock')}
+											</Badge>
+										{/if}
+									</div>
 									<div class="text-xs text-muted-foreground">
 										{sortLabel(pack.sort)}
 										{#if pack.version.length}
