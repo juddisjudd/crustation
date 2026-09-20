@@ -31,6 +31,10 @@ export function sendCommand(serverId: string, command: string) {
 	return api.post<CommandResult>(`/servers/${serverId}/command`, { command });
 }
 
+export function clearConsole(serverId: string) {
+	return api.delete<void>(`/servers/${serverId}/console`);
+}
+
 export function rconStatus(serverId: string) {
 	return api.get<RconStatus>(`/servers/${serverId}/rcon`);
 }

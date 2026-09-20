@@ -195,6 +195,14 @@ impl Supervisor {
         }
     }
 
+    /// Empties the backlog. Sequence numbers carry on from where they were, so
+    /// a client polling with `after` is not sent the next line twice.
+    pub async fn clear_console(&self, id: Uuid) {
+        let instance = self.instance(id).await;
+        instance.lock().await.console.clear();
+        self.events.console_cleared(id);
+    }
+
     /// Marks a long-running job so the interface can show it. Returns a guard-like
     /// setter the caller uses again to clear the flag.
     pub async fn set_flag(&self, id: Uuid, flag: Flag, value: bool) {
@@ -671,6 +679,28 @@ fn kill_pid(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_the_backlog_does_not_rewind_the_sequence() {
+        let mut instance = Instance::new();
+        for _ in 0..3 {
+            instance.push("stdout", "hello".to_string(), 500);
+        }
+        instance.console.clear();
+        let next = instance.push("stdout", "after".to_string(), 500);
+        assert_eq!(instance.console.len(), 1);
+        assert_eq!(next.seq, 4);
+    }
+
+    #[test]
+    fn the_backlog_never_grows_past_its_bound() {
+        let mut instance = Instance::new();
+        for _ in 0..10 {
+            instance.push("stdout", "hello".to_string(), 4);
+        }
+        assert_eq!(instance.console.len(), 4);
+        assert_eq!(instance.console[0].seq, 7);
+    }
 
     #[test]
     fn a_bedrock_arrival_gives_up_its_xbox_id() {

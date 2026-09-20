@@ -43,7 +43,8 @@ export const server = {
 	console: {
 		live: 'Live',
 		offline: 'Offline',
-		clear: 'Clear view',
+		clear: 'Clear the buffer',
+		clearError: 'Could not clear the console',
 		macros: {
 			add: 'Save a command',
 			label: 'Button label',

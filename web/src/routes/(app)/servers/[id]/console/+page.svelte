@@ -17,7 +17,13 @@
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { api } from '$lib/api/client';
-	import { enableRcon, errorMessage, rconStatus, sendCommand } from '$lib/api/servers';
+	import {
+		clearConsole,
+		enableRcon,
+		errorMessage,
+		rconStatus,
+		sendCommand
+	} from '$lib/api/servers';
 	import { socket } from '$lib/realtime/socket.svelte';
 	import { servers } from '$lib/servers.svelte';
 	import type { ConsoleLine, RconStatus } from '$lib/api/types';
@@ -166,6 +172,19 @@
 		if (pinned) tick().then(scrollToBottom);
 	}
 
+	// The panel holds a backlog of its own, so emptying the view alone would
+	// last until the next reload refetched it.
+	async function clear() {
+		const held = lines;
+		lines = [];
+		try {
+			await clearConsole(server.id);
+		} catch (err) {
+			lines = held;
+			toast.error(t('server.console.clearError'), { description: errorMessage(err) });
+		}
+	}
+
 	function scrollToBottom() {
 		viewport?.scrollTo({ top: viewport.scrollHeight });
 		pinned = true;
@@ -221,6 +240,10 @@
 			if (ready) append([line]);
 			else buffered.push(line);
 		});
+		const stopClear = socket.on(`server:${id}:console`, 'cleared', () => {
+			lines = [];
+			buffered.length = 0;
+		});
 
 		api
 			.get<{ lines: ConsoleLine[] }>(`/servers/${id}/console`)
@@ -241,6 +264,7 @@
 		return () => {
 			cancelled = true;
 			stop();
+			stopClear();
 		};
 	});
 
@@ -333,7 +357,7 @@
 				syntax
 			)}
 			{@render iconButton(DownloadIcon, t('server.console.download'), download)}
-			{@render iconButton(EraserIcon, t('server.console.clear'), () => (lines = []))}
+			{@render iconButton(EraserIcon, t('server.console.clear'), clear)}
 		</div>
 
 		<div

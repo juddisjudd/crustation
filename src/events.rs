@@ -102,6 +102,10 @@ impl Events {
         self.publish(Topic::Console(server_id), "line", line);
     }
 
+    pub fn console_cleared(&self, server_id: Uuid) {
+        self.publish(Topic::Console(server_id), "cleared", json!({}));
+    }
+
     pub fn notify(&self, level: &str, message: impl Into<String>) {
         self.publish(
             Topic::Panel,

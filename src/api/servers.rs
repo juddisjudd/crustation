@@ -35,7 +35,7 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}", get(detail).patch(update).delete(remove))
         .route("/{id}/action", post(action))
         .route("/{id}/command", post(command))
-        .route("/{id}/console", get(console))
+        .route("/{id}/console", get(console).delete(clear_console))
         .route("/{id}/rcon", get(rcon_status).post(rcon_enable))
         .merge(crate::api::properties::server_routes())
         .merge(crate::api::files::routes())
@@ -1164,6 +1164,28 @@ async fn console(
         .await?;
     let lines = state.supervisor.console(id, query.after).await;
     Ok(OkJson(json!({ "lines": lines })))
+}
+
+/// Drops the backlog the panel is holding for this server. The game server
+/// keeps its own log files; this is only what the console tab reads.
+async fn clear_console(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    identity
+        .require_server(&state.db, id, ServerPerm::Console)
+        .await?;
+    state.supervisor.clear_console(id).await;
+    super::audit(
+        &state,
+        Some(&identity.user),
+        Some(id),
+        "cleared the console",
+        None,
+    )
+    .await;
+    Ok(Done)
 }
 
 #[cfg(test)]
