@@ -308,6 +308,8 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | POST             | `/servers/{id}/files/upload`                             | Streamed upload, `?path=` for the folder. Progress is an event.                                                                                                                                                                                          |
 | GET              | `/servers/{id}/files/download?path=`                     | Streams the file, or a zip of a folder.                                                                                                                                                                                                                  |
 | POST             | `/servers/{id}/files/extract`                            | `{path}` to unzip in place.                                                                                                                                                                                                                              |
+| GET              | `/servers/{id}/packs`                                    | What is installed: `{packs: [{name, sort, path, uuid, version, activated}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
+| POST             | `/servers/{id}/packs`                                    | `{path, activate}` installs an add-on already in the server folder. Returns `{installed, restart_required}`. Requires `FILES`. |
 | GET/POST         | `/servers/{id}/macros`                                   | Saved commands as buttons: `{id, label, command, position}`. Reading needs `COMMANDS`, changing needs `CONFIG`.                                                                                                                                          |
 | PATCH/DELETE     | `/servers/{id}/macros/{macro_id}`                        | One saved command.                                                                                                                                                                                                                                       |
 | GET/POST         | `/servers/{id}/backups`                                  | Backup configs: name, destination, retention, excludes, compression, whether to stop the server.                                                                                                                                                        |
@@ -319,6 +321,25 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | GET/POST         | `/servers/{id}/schedules`                                | `{name, enabled, trigger, action}` where `trigger` is `{type:"interval", every_seconds, at?}`, `{type:"cron", expression}` or `{type:"after", schedule_id, delay_seconds}`, and `action` is `{type:"start"\|"stop"\|"restart"\|"backup"\|"command", …}`. |
 | GET/PATCH/DELETE | `/servers/{id}/schedules/{schedule_id}`                  | One schedule. `POST …/run` runs it now.                                                                                                                                                                                                                  |
 | GET/POST         | `/servers/{id}/webhooks`                                 | `{name, provider, url, events, template, enabled}`. `POST …/{webhook_id}/test` sends a test.                                                                                                                                                             |
+
+`POST /servers/{id}/packs` reads a `.mcaddon`, `.mcpack` or plain `.zip` and puts what is inside
+where the server looks for it. A `.mcaddon` may hold several packs, sometimes as `.mcpack` files
+nested inside it, and both shapes are handled.
+
+- Each pack is found by its `manifest.json`, and its first recognised module decides where it
+  goes: `data`, `script` and `client_data` are behaviour packs, `resources` a resource pack.
+- Behaviour packs land in `behavior_packs/<name>`, resource packs in `resource_packs/<name>`, and
+  the folder is replaced rather than merged, so an update leaves nothing of the old one behind.
+- `activate` also writes the pack into `worlds/<level-name>/world_behavior_packs.json` or
+  `world_resource_packs.json`, because Bedrock ignores a pack that is only sitting in the folder.
+  Installing the same pack again updates its row rather than adding a second one.
+- On Java the same endpoint takes a datapack: a zip with a `pack.mcmeta`, unpacked into
+  `<level-name>/datapacks/`.
+- A `header.name` of `pack.something` is a key looked up in the language file the pack carries,
+  not a name, so the file or folder name is used instead.
+- An archive with nothing the panel recognises answers `409 CONFLICT` rather than scattering
+  files about.
+- It always takes effect on the next start, so the reply says `restart_required`.
 
 Every file endpoint needs `FILES`. Paths are relative to the server's own folder and are checked
 twice: once as text, throwing out `..` and anything anchored elsewhere, and again after resolving

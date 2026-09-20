@@ -76,6 +76,11 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   needs no plugin and draws no terrain.
 - The console reads like a log: the timestamp, thread and level dimmed, chat, addresses, quoted
   text and numbers picked out, all of it behind a switch for anyone who would rather it plain.
+- Add-ons, installed from the file browser. A .mcaddon, .mcpack or zip is opened, every pack
+  inside it found by its manifest, and each one put where the server reads it and switched on
+  for the world. A .mcaddon that holds .mcpack files is opened in turn. Java datapacks arrive
+  the same way, through their pack.mcmeta.
+- Editing a file is its own view with a way back, rather than a panel wedged under the browser.
 
 ## Next
 

@@ -7,6 +7,7 @@ mod events;
 mod files;
 mod install;
 mod java;
+mod packs;
 mod perms;
 mod ping;
 mod properties;
