@@ -13,7 +13,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import { Spinner } from '$lib/components/ui/spinner/index.js';
-	import { Textarea } from '$lib/components/ui/textarea/index.js';
+	import CodeEditor from '$lib/components/code-editor.svelte';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -358,11 +358,7 @@
 					</Button>
 				</div>
 			</div>
-			<Textarea
-				bind:value={draft}
-				spellcheck={false}
-				class="min-h-[28rem] resize-y rounded-none border-0 font-mono text-xs focus-visible:ring-0"
-			/>
+			<CodeEditor bind:value={draft} filename={open.path} class="max-h-[32rem] min-h-[28rem]" />
 		</section>
 	{/if}
 </div>
