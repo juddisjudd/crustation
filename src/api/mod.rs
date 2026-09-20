@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod bridge;
 pub mod files;
+pub mod items;
 pub mod macros;
 pub mod map;
 pub mod packs;
@@ -27,6 +28,7 @@ pub fn router() -> Router<AppState> {
         .nest("/panel", panel::routes())
         .nest("/providers", providers::routes())
         .nest("/properties", properties::routes())
+        .nest("/items", items::routes())
         .nest("/users", users::routes())
         .nest("/roles", roles::routes())
         .nest("/bridge", bridge::public_routes())

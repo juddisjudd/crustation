@@ -1,4 +1,4 @@
-import { api } from './client';
+import { api, API_ROOT } from './client';
 
 export interface OnlinePlayer {
 	name: string;
@@ -50,6 +50,10 @@ export interface GiveableItem {
 	/** Without a namespace for anything vanilla, as both editions read it. */
 	id: string;
 	name: string;
+	/** A creative tab, or `other` for Bedrock-only and add-on items. */
+	category: string;
+	/** Set when a picture exists. The panel serves it; this is only the flag. */
+	icon?: string;
 }
 
 export interface ItemCatalogue {
@@ -96,6 +100,10 @@ export const actOnPlayer = (serverId: string, action: PlayerAction) =>
 
 export const giveableItems = (serverId: string) =>
 	api.get<ItemCatalogue>(`/servers/${serverId}/items`);
+
+/** The panel's own copy, fetched from the gallery once and then kept. */
+export const itemIconUrl = (item: GiveableItem) =>
+	item.icon ? `${API_ROOT}/items/${encodeURIComponent(item.id)}/icon` : null;
 
 /** A head render, from the community avatar service Minecraft panels use. */
 export const headUrl = (player: { uuid?: string | null; name: string }) =>

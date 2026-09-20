@@ -64,9 +64,9 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | POST   | `/servers/{id}/rcon`    | Turns RCON on: sets `enable-rcon`, picks a free port and writes a password into `server.properties`. `{regenerate_password}` replaces one that is already there. Returns `{port, restart_required}`. `409 CONFLICT` when the server has not written `server.properties` yet. Requires `CONFIG`. |
 | GET    | `/servers/{id}/logs`    | Log files: `{files: [{name, size, modified}]}`; `?file=` returns its contents.                                                                                                                                                                                                                  |
 | GET    | `/servers/stats`        | Recent history for every server the caller can see, in one call: `?minutes=&points=` → `{since, minutes, series: {"<id>": [{cpu, memory_percent} | null]}}`. Averaged into `points` buckets so a line is a fixed length; a bucket nothing was sampled in is `null`, which draws as a gap rather than a floor. |
-| GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. Requires `PLAYERS`. |
+| GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. A row in `known` is only ever `online` while the server is live, so one that stops with people on it reports nobody rather than leaving them there. Requires `PLAYERS`. |
 | POST   | `/servers/{id}/player-actions` | One thing to do about one player. Requires `PLAYERS`, or `COMMANDS` for `give`, `teleport`, `say` and `whisper`. |
-| GET    | `/servers/{id}/items`   | What `give` will take: `{source, kind, items: [{id, name}]}`, sorted by id. `source` is `server` when a Bedrock add-on has listed what the running server actually holds, add-ons and all, and `catalogue` when the panel is offering the vanilla list for that edition instead. Requires `COMMANDS`. |
+| GET    | `/servers/{id}/items`   | What `give` will take: `{source, kind, items: [{id, name, category, icon?}]}`, sorted by id. `source` is `server` when a Bedrock add-on has listed what the running server actually holds, add-ons and all, and `catalogue` when the panel is offering the vanilla list for that edition instead. `category` is a creative tab, or `other` for anything unplaced. `icon` is present when a picture exists, and asking for the list is what starts the panel filling its picture cache. Requires `COMMANDS`. |
 | GET    | `/servers/{id}/map`     | A web map installed on the server: `{found}` alone, or `{found, id, name, port, enabled, answering, config}`. Requires `CONSOLE`. |
 | GET    | `/servers/{id}/positions` | Where everybody is standing, asked of the server over RCON: `{supported, reason?, players: [{name, x, y, z, dimension}]}`. Requires `CONSOLE`. |
 | GET/POST/DELETE | `/servers/{id}/players/{list}` | One of the files the game keeps beside the world. `POST {value, reason?, level?}` adds, `DELETE {value}` removes.                                                                                                                                                             |
@@ -248,6 +248,29 @@ failed install leaves the server in place with an empty start command so the con
 | GET    | `/providers/{provider}/versions` | `[{id, label, stable}]`, newest first. `503 UNAVAILABLE` when the upstream service cannot be reached.          |
 
 Both require `CREATE_SERVER`. Version lists are fetched from upstream and held for ten minutes.
+
+## Item pictures
+
+| Method | Path                 | Purpose                                                                                                |
+| ------ | -------------------- | -------------------------------------------------------------------------------------------------------- |
+| GET    | `/items/{id}/icon`   | The picture of one item, as a png. `404` when the id is unknown or has no picture. Any signed-in caller. |
+
+Not nested under a server: a diamond looks the same whoever asked. The pictures come from
+[mcitemgallery.com](https://mcitemgallery.com), whose repository is MIT; the textures themselves
+are Mojang's, so the panel fetches them at runtime rather than shipping them in its own image.
+
+The panel fetches, never the browser. A panel on a home network can reach the internet when the
+machine looking at it might not, and the gallery then sees one request per item rather than one
+per person. The first call to `GET /servers/{id}/items` starts a one-off background fill: the
+gallery's sets are incremental, so a dozen archives laid out as `<version>/<id>.png` unpack into
+`config/icons/` and become the whole current set, about 16 MB. A `.done` file marks a set that
+finished, so a run cut short is done again rather than trusted. Anything still missing afterwards
+is fetched one at a time on request and kept.
+
+`id` is looked up in the catalogue before it reaches the disk or the network, so what is asked
+for never becomes a path or a URL. A panel with no way out answers `404` and the interface draws
+the list without pictures, which is also what a Bedrock-only or add-on item gets: the gallery is
+Java's, and no add-on ships a picture the panel could find.
 
 ## Server settings
 

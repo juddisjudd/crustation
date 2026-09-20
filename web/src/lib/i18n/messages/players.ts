@@ -76,6 +76,19 @@ export const players = {
 		itemFromCatalogue: '{total} vanilla items for this edition.',
 		itemFromCatalogueBedrock:
 			'{total} vanilla items. Install the add-on and this server lists its own instead, add-ons included.',
+		catAll: 'Everything',
+		cat: {
+			blocks: 'Blocks',
+			decorations: 'Decoration',
+			redstone: 'Redstone',
+			tools: 'Tools',
+			combat: 'Combat',
+			food: 'Food',
+			materials: 'Materials',
+			spawn_eggs: 'Spawn eggs',
+			misc: 'Miscellaneous',
+			other: 'Uncategorised'
+		},
 		count: 'How many',
 		teleport: 'Teleport',
 		teleportTitle: 'Send {name} somewhere',

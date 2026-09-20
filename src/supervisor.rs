@@ -293,6 +293,8 @@ impl Supervisor {
                 // The only place a Bedrock server ever says an Xbox id out loud.
                 if let Some((name, xuid)) = xuid_in(&text) {
                     remember_xuid(&db, id, &name, &xuid).await;
+                } else if let Some(name) = left_in(&text) {
+                    mark_left(&db, id, &name).await;
                 }
                 let mut guard = instance.lock().await;
                 let line = guard.push(stream, text, backlog);
@@ -339,6 +341,11 @@ impl Supervisor {
             let state = guard.state;
             let flags = guard.flags();
             drop(guard);
+
+            // Nobody is on a server that has stopped. The marks are written as
+            // people arrive, so without this they outlive the process that
+            // earned them and the list still says two are playing.
+            forget_who_was_on(&supervisor.db, launch.id).await;
 
             events.server_state(launch.id, state.as_str(), flags);
             if !clean {
@@ -594,14 +601,25 @@ fn xuid_in(line: &str) -> Option<(String, String)> {
     usable.then(|| (name.to_string(), xuid.to_string()))
 }
 
-/// Kept beside the name, in the column Java uses for its own player id.
+/// The other half of the pair: `Player disconnected: ohitsjudd, xuid: …`.
+/// Without it a Bedrock arrival is never taken back, since the pong that would
+/// otherwise say who is on carries no names at all.
+fn left_in(line: &str) -> Option<String> {
+    let (_, rest) = line.split_once("Player disconnected:")?;
+    let name = rest.split(", xuid:").next()?.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// Kept beside the name, in the column Java uses for its own player id. The
+/// line is an arrival as well as an id, so it marks them on.
 async fn remember_xuid(db: &crate::db::Db, id: Uuid, name: &str, xuid: &str) {
     let now = chrono::Utc::now().to_rfc3339();
     let result = sqlx::query(
         "INSERT INTO server_players (server_id, name, uuid, first_seen, last_seen, online)
          VALUES (?, ?, ?, ?, ?, 1)
          ON CONFLICT(server_id, name) DO UPDATE SET uuid = excluded.uuid,
-                                                    last_seen = excluded.last_seen",
+                                                    last_seen = excluded.last_seen,
+                                                    online = 1",
     )
     .bind(id.to_string())
     .bind(name)
@@ -612,6 +630,34 @@ async fn remember_xuid(db: &crate::db::Db, id: Uuid, name: &str, xuid: &str) {
     .await;
     if let Err(error) = result {
         tracing::debug!(%error, "could not write down an Xbox id");
+    }
+}
+
+/// Marks one person off, by name, leaving the rest of the row alone.
+async fn mark_left(db: &crate::db::Db, id: Uuid, name: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "UPDATE server_players SET online = 0, last_seen = ?
+         WHERE server_id = ? AND name = ?",
+    )
+    .bind(&now)
+    .bind(id.to_string())
+    .bind(name)
+    .execute(db)
+    .await;
+    if let Err(error) = result {
+        tracing::debug!(%error, "could not mark somebody as gone");
+    }
+}
+
+/// Nobody is on a server that is not running.
+async fn forget_who_was_on(db: &crate::db::Db, id: Uuid) {
+    let result = sqlx::query("UPDATE server_players SET online = 0 WHERE server_id = ?")
+        .bind(id.to_string())
+        .execute(db)
+        .await;
+    if let Err(error) = result {
+        tracing::debug!(%error, "could not clear the online marks");
     }
 }
 
@@ -664,6 +710,24 @@ mod tests {
         assert!(xuid_in("[INFO] Server started.").is_none());
         assert!(xuid_in("Player connected: nobody, xuid: not-a-number").is_none());
         assert!(xuid_in("Player connected: , xuid: 2535458356136740").is_none());
+    }
+
+    #[test]
+    fn a_departure_is_read_back_as_the_name_alone() {
+        let line = "[2026-09-20 18:54:38:949 INFO] Player disconnected: ohitsjudd, \
+                    xuid: 2535458356136740, pfid: 3BDCCD5EB8F51F1E";
+        assert_eq!(left_in(line), Some("ohitsjudd".to_string()));
+        assert_eq!(
+            left_in("[INFO] Player disconnected: Some One, xuid: 2535000000000001"),
+            Some("Some One".to_string())
+        );
+    }
+
+    #[test]
+    fn an_arrival_is_not_mistaken_for_a_departure() {
+        assert!(left_in("[INFO] Player connected: ohitsjudd, xuid: 2535458356136740").is_none());
+        assert!(left_in("[INFO] Server started.").is_none());
+        assert!(left_in("[INFO] Player disconnected: , xuid: 2535458356136740").is_none());
     }
 
     #[test]

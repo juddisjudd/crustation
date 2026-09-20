@@ -39,6 +39,10 @@ async fn items(
         .await?;
     let row = super::servers::load(&state, id).await?;
 
+    // Somebody is about to look at a list of items, so this is the moment the
+    // pictures are worth having. It runs once and returns at once.
+    super::items::warm_in_background(&state);
+
     let (source, items) = match state.bridges.items(id).await {
         Some(said) => ("server", crate::items::reported(&row.kind, &said)),
         None => ("catalogue", crate::items::catalogue(&row.kind).to_vec()),
@@ -172,6 +176,10 @@ async fn overview(
     .fetch_all(&state.db)
     .await?;
 
+    // A mark only means anything while the server is up to have earned it. One
+    // that outlived its process, or a panel restarted since, would otherwise
+    // have the list saying two are playing on a server that is not running.
+    let running = state.supervisor.state(id).await.is_live();
     let known: Vec<Value> = rows
         .iter()
         .map(|row| {
@@ -180,7 +188,7 @@ async fn overview(
                 "uuid": row.uuid,
                 "first_seen": row.first_seen,
                 "last_seen": row.last_seen,
-                "online": row.online,
+                "online": row.online && running,
             })
         })
         .collect();
@@ -237,7 +245,7 @@ async fn overview(
         // Everybody any of the lists names, so the page can act on somebody the
         // server has never seen.
         "listed": listed,
-        "running": state.supervisor.state(id).await.is_live(),
+        "running": running,
         "edition": if kind == "minecraft_bedrock" { "bedrock" } else { "java" },
     })))
 }

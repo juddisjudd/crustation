@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Command from '$lib/components/ui/command/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
-	import { giveableItems, type GiveableItem } from '$lib/api/players';
+	import { giveableItems, itemIconUrl, type GiveableItem } from '$lib/api/players';
 	import { errorMessage } from '$lib/api/servers';
 	import { t } from '$lib/i18n/index.svelte';
 
@@ -16,12 +16,27 @@
 	/** Long enough to scroll through, short enough that typing stays instant. */
 	const SHOWN = 200;
 
+	/** Creative tab order, near enough. `other` last: it is the leftovers. */
+	const ORDER = [
+		'blocks',
+		'decorations',
+		'redstone',
+		'tools',
+		'combat',
+		'food',
+		'materials',
+		'spawn_eggs',
+		'misc',
+		'other'
+	] as const;
+
 	let all = $state<GiveableItem[]>([]);
 	let source = $state<'server' | 'catalogue' | null>(null);
 	let kind = $state('');
 	let loading = $state(true);
 	let failed = $state<string | null>(null);
 	let search = $state('');
+	let tab = $state<string | null>(null);
 
 	$effect(() => {
 		let current = true;
@@ -39,6 +54,12 @@
 		return () => (current = false);
 	});
 
+	/** Only the tabs this server actually has something in. */
+	const tabs = $derived.by(() => {
+		const present = new Set(all.map((one) => one.category));
+		return ORDER.filter((one) => present.has(one));
+	});
+
 	/** Whatever was typed is worth offering even when it matches nothing: a pack
 	 * can add an item the panel has never heard of. */
 	const typed = $derived(search.trim());
@@ -47,11 +68,12 @@
 	);
 
 	const matches = $derived.by(() => {
+		const within = tab ? all.filter((one) => one.category === tab) : all;
 		const needle = typed.toLowerCase();
-		if (!needle) return all;
+		if (!needle) return within;
 		const starts: GiveableItem[] = [];
 		const holds: GiveableItem[] = [];
-		for (const one of all) {
+		for (const one of within) {
 			const id = one.id.toLowerCase();
 			const name = one.name.toLowerCase();
 			if (id.startsWith(needle) || name.startsWith(needle)) starts.push(one);
@@ -61,9 +83,41 @@
 	});
 
 	const shown = $derived(matches.slice(0, SHOWN));
+
+	/** A picture that will not load leaves its space rather than a broken icon. */
+	function hide(event: Event) {
+		(event.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+	}
 </script>
 
 <div class="grid gap-2">
+	{#if tabs.length > 1}
+		<div class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+			<button
+				type="button"
+				class="shrink-0 rounded-md px-2 py-1 text-xs whitespace-nowrap transition-colors {tab ===
+				null
+					? 'bg-secondary text-secondary-foreground'
+					: 'text-muted-foreground hover:bg-secondary/50'}"
+				onclick={() => (tab = null)}
+			>
+				{t('players.act.catAll')}
+			</button>
+			{#each tabs as one (one)}
+				<button
+					type="button"
+					class="shrink-0 rounded-md px-2 py-1 text-xs whitespace-nowrap transition-colors {tab ===
+					one
+						? 'bg-secondary text-secondary-foreground'
+						: 'text-muted-foreground hover:bg-secondary/50'}"
+					onclick={() => (tab = one)}
+				>
+					{t(`players.act.cat.${one}` as 'players.act.cat.blocks')}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
 	<Command.Root shouldFilter={false} class="rounded-lg border bg-transparent p-0">
 		<Command.Input placeholder={t('players.act.itemSearch')} bind:value={search} />
 		<Command.List class="max-h-64">
@@ -78,6 +132,7 @@
 			{:else}
 				{#if unknown}
 					<Command.Item value={typed} onSelect={() => (value = typed)}>
+						<span class="size-5 shrink-0"></span>
 						<span class="font-mono text-sm">{typed}</span>
 						<span class="ml-auto text-xs text-muted-foreground">{t('players.act.itemAsTyped')}</span
 						>
@@ -87,7 +142,20 @@
 					<Command.Empty>{t('players.act.itemNone')}</Command.Empty>
 				{/if}
 				{#each shown as one (one.id)}
+					{@const picture = itemIconUrl(one)}
 					<Command.Item value={one.id} onSelect={() => (value = one.id)}>
+						{#if picture}
+							<img
+								src={picture}
+								alt=""
+								loading="lazy"
+								decoding="async"
+								onerror={hide}
+								class="size-5 shrink-0 [image-rendering:pixelated]"
+							/>
+						{:else}
+							<span class="size-5 shrink-0"></span>
+						{/if}
 						<span class="truncate">{one.name}</span>
 						<span
 							class="ml-auto truncate font-mono text-xs {value === one.id

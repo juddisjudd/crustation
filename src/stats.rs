@@ -128,22 +128,32 @@ async fn ping_all(state: &AppState) -> HashMap<Uuid, crate::ping::Status> {
             let port = u16::try_from(port).ok()?;
             let status = crate::ping::query(&kind, &host, port).await.ok();
             state.statuses.record(id, status.clone()).await;
-            Some((id, status?))
+            Some((id, kind, status?))
         }
     }))
     .await;
 
-    let seen: HashMap<Uuid, crate::ping::Status> = answers.into_iter().flatten().collect();
-    for (id, status) in &seen {
-        remember_players(state, *id, status).await;
+    let answers: Vec<(Uuid, String, crate::ping::Status)> = answers.into_iter().flatten().collect();
+    for (id, kind, status) in &answers {
+        remember_players(state, *id, kind, status).await;
     }
-    seen
+    answers
+        .into_iter()
+        .map(|(id, _, status)| (id, status))
+        .collect()
 }
 
 /// Keeps a roll of who has been on. Java hands back a short sample rather than
 /// the whole list, and none at all when `hide-online-players` is set, so this is
 /// what the server was willing to say and not a register.
-async fn remember_players(state: &AppState, id: Uuid, status: &crate::ping::Status) {
+async fn remember_players(state: &AppState, id: Uuid, kind: &str, status: &crate::ping::Status) {
+    // A Bedrock pong carries counts and never names, so there is nothing here
+    // to mark anybody with. Clearing anyway would wipe what the console and
+    // the add-on worked out and put nothing back in its place.
+    if kind == "minecraft_bedrock" {
+        return;
+    }
+
     let now = Utc::now().to_rfc3339();
     let result = sqlx::query("UPDATE server_players SET online = 0 WHERE server_id = ?")
         .bind(id.to_string())
