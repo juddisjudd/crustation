@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod files;
 pub mod macros;
+pub mod map;
 pub mod panel;
 pub mod players;
 pub mod properties;

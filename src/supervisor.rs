@@ -412,6 +412,17 @@ impl Supervisor {
     /// Runs a command over RCON when the server has it set up, and over stdin
     /// otherwise. Only RCON hands an answer back.
     pub async fn run_command(&self, id: Uuid, command: &str) -> Result<Outcome> {
+        self.run(id, command, true).await
+    }
+
+    /// The same, without putting it in the console. For what the panel asks on
+    /// a timer: a map that polls every few seconds would otherwise bury the log
+    /// everyone else is reading.
+    pub async fn ask_quietly(&self, id: Uuid, command: &str) -> Result<Outcome> {
+        self.run(id, command, false).await
+    }
+
+    async fn run(&self, id: Uuid, command: &str, echo: bool) -> Result<Outcome> {
         if !self.state(id).await.is_live() {
             bail!("the server is not running");
         }
@@ -419,13 +430,15 @@ impl Supervisor {
         if let Some(endpoint) = self.rcon_endpoint(id).await {
             match crate::rcon::run(&endpoint, command).await {
                 Ok(output) => {
-                    // The server logs commands typed on stdin but not these, so
-                    // echo both sides into the console everyone is watching.
-                    self.push_console(id, "command", format!("> {command}"))
-                        .await;
                     let output = output.trim_end().to_string();
-                    for text in output.lines() {
-                        self.push_console(id, "rcon", text.to_string()).await;
+                    if echo {
+                        // The server logs commands typed on stdin but not these,
+                        // so echo both sides into the console everyone watches.
+                        self.push_console(id, "command", format!("> {command}"))
+                            .await;
+                        for text in output.lines() {
+                            self.push_console(id, "rcon", text.to_string()).await;
+                        }
                     }
                     return Ok(Outcome {
                         via: "rcon",
@@ -443,6 +456,11 @@ impl Supervisor {
             via: "stdin",
             output: None,
         })
+    }
+
+    /// Whether the panel can expect an answer back from this server at all.
+    pub async fn can_ask(&self, id: Uuid) -> bool {
+        self.rcon_endpoint(id).await.is_some()
     }
 
     async fn rcon_endpoint(&self, id: Uuid) -> Option<crate::rcon::Endpoint> {

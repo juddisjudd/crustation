@@ -38,6 +38,7 @@ pub fn routes() -> Router<AppState> {
         .merge(crate::api::properties::server_routes())
         .merge(crate::api::files::routes())
         .merge(crate::api::macros::routes())
+        .merge(crate::api::map::routes())
         .merge(crate::api::players::routes())
 }
 
