@@ -37,6 +37,7 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/rcon", get(rcon_status).post(rcon_enable))
         .merge(crate::api::properties::server_routes())
         .merge(crate::api::files::routes())
+        .merge(crate::api::macros::routes())
 }
 
 #[derive(Debug, Clone, FromRow)]

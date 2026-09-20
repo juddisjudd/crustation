@@ -47,6 +47,12 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   cannot delete, disable or demote yourself, and the last administrator cannot be removed by any
   route. A server nobody granted answers 404 rather than 403, so the list of servers stays
   private. Invite links are still to come.
+- A console worth reading: level chips, plain or regex search with the hits highlighted in place,
+  section-sign colours rendered as the game means them, a timestamp toggle, and a button to
+  download the buffer. Saved commands sit above the input as buttons for everybody who can use
+  that console.
+- A warning on any server sharing a port with another of the same edition, since Java binds TCP
+  and Bedrock binds UDP and only a clash within one of them stops the other starting.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
@@ -77,11 +83,7 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 
 Unblocked by the list above, and most of what makes the panel feel finished:
 
-- Console: level filter chips, regex search with highlighting, section-sign colour codes, a
-  timestamp toggle, download the buffer.
-- Saved command macros per server, as buttons.
 - Bulk actions across servers, reachable from the command palette.
-- A warning when two servers claim the same port.
 - Audit entries on the server page: who did what, and when.
 
 ## Later

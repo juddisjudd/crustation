@@ -6,7 +6,9 @@
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import EraserIcon from '@lucide/svelte/icons/eraser';
 	import RegexIcon from '@lucide/svelte/icons/regex';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import XIcon from '@lucide/svelte/icons/x';
 	import { toast } from 'svelte-sonner';
 	import { tick } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -18,6 +20,7 @@
 	import { socket } from '$lib/realtime/socket.svelte';
 	import { servers } from '$lib/servers.svelte';
 	import type { ConsoleLine, RconStatus } from '$lib/api/types';
+	import { createMacro, deleteMacro, listMacros, type Macro } from '$lib/api/macros';
 	import { asText, badRegex, levelOf, matcherFor, pieces, plain, type Level } from '$lib/console';
 	import { t } from '$lib/i18n/index.svelte';
 
@@ -82,6 +85,53 @@
 
 	function clockOf(line: ConsoleLine) {
 		return new Date(line.at).toLocaleTimeString();
+	}
+
+	let macros = $state.raw<Macro[]>([]);
+	let addingMacro = $state(false);
+	let macroLabel = $state('');
+	let macroCommand = $state('');
+
+	$effect(() => {
+		const id = server.id;
+		if (!canCommand) return;
+		listMacros(id)
+			.then((saved) => {
+				if (server.id === id) macros = saved;
+			})
+			.catch(() => {});
+	});
+
+	async function runMacro(saved: Macro) {
+		try {
+			await sendCommand(server.id, saved.command);
+			scrollToBottom();
+		} catch (err) {
+			toast.error(t('server.console.sendError'), { description: errorMessage(err) });
+		}
+	}
+
+	async function saveMacro() {
+		if (!macroLabel.trim() || !macroCommand.trim()) return;
+		try {
+			await createMacro(server.id, macroLabel.trim(), macroCommand.trim());
+			toast.success(t('server.console.macros.saved', { name: macroLabel.trim() }));
+			macroLabel = '';
+			macroCommand = '';
+			addingMacro = false;
+			macros = await listMacros(server.id);
+		} catch (err) {
+			toast.error(t('server.console.sendError'), { description: errorMessage(err) });
+		}
+	}
+
+	async function dropMacro(saved: Macro) {
+		try {
+			await deleteMacro(server.id, saved.id);
+			macros = await listMacros(server.id);
+		} catch (err) {
+			toast.error(t('server.console.sendError'), { description: errorMessage(err) });
+		}
 	}
 
 	// Reachability is proven by connecting, so re-check when the server comes up.
@@ -362,6 +412,73 @@
 		{/if}
 
 		{#if canCommand}
+			<div
+				class="flex flex-wrap items-center gap-1.5 border-t border-white/10 px-2 pt-2"
+				aria-label={t('server.console.macros.hint')}
+			>
+				{#each macros as saved (saved.id)}
+					<span class="group inline-flex items-center rounded-full border border-white/15">
+						<button
+							class="rounded-l-full px-2.5 py-1 text-[11px] text-white/80 hover:bg-white/10"
+							title={saved.command}
+							onclick={() => runMacro(saved)}
+						>
+							{saved.label}
+						</button>
+						{#if canConfigure}
+							<button
+								class="rounded-r-full px-1.5 py-1 text-white/30 hover:bg-white/10 hover:text-white"
+								aria-label={t('server.console.macros.remove', { name: saved.label })}
+								onclick={() => dropMacro(saved)}
+							>
+								<XIcon class="size-3" />
+							</button>
+						{/if}
+					</span>
+				{/each}
+
+				{#if canConfigure}
+					{#if addingMacro}
+						<input
+							bind:value={macroLabel}
+							placeholder={t('server.console.macros.label')}
+							aria-label={t('server.console.macros.label')}
+							class="h-7 w-28 rounded border border-white/15 bg-transparent px-2 text-[11px] text-white placeholder:text-white/30"
+						/>
+						<input
+							bind:value={macroCommand}
+							placeholder={t('server.console.macros.command')}
+							aria-label={t('server.console.macros.command')}
+							class="h-7 w-44 rounded border border-white/15 bg-transparent px-2 font-mono text-[11px] text-white placeholder:text-white/30"
+						/>
+						<Button
+							size="sm"
+							class="h-7 text-[11px]"
+							disabled={!macroLabel.trim() || !macroCommand.trim()}
+							onclick={saveMacro}
+						>
+							{t('common.actions.save')}
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							class="h-7 text-[11px] text-white/60 hover:bg-white/10 hover:text-white"
+							onclick={() => (addingMacro = false)}
+						>
+							{t('common.actions.cancel')}
+						</Button>
+					{:else}
+						<button
+							class="inline-flex items-center gap-1 rounded-full border border-dashed border-white/15 px-2.5 py-1 text-[11px] text-white/50 hover:bg-white/10 hover:text-white"
+							onclick={() => (addingMacro = true)}
+						>
+							<PlusIcon class="size-3" />
+							{t('server.console.macros.add')}
+						</button>
+					{/if}
+				{/if}
+			</div>
+
 			<form onsubmit={submit} class="border-t border-white/10 p-2">
 				<InputGroup.Root
 					class="border-white/10 bg-white/5 text-white has-[[data-slot=input-group-control]:focus-visible]:border-white/30 has-[[data-slot=input-group-control]:focus-visible]:ring-white/10 dark:bg-white/5"

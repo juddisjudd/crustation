@@ -113,3 +113,16 @@ class Servers {
 }
 
 export const servers = new Servers();
+
+/**
+ * Servers that would fight over a port. Java binds TCP and Bedrock binds UDP,
+ * so the same number on different editions is not a clash and is not reported.
+ */
+export function portClashes(list: Server[], id: string): Server[] {
+	const mine = list.find((server) => server.id === id);
+	if (!mine) return [];
+	return list.filter(
+		(other) =>
+			other.id !== id && other.kind === mine.kind && other.address.port === mine.address.port
+	);
+}

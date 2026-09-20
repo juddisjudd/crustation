@@ -12,7 +12,7 @@
 	import ServerActionsMenu from '$lib/components/servers/server-actions-menu.svelte';
 	import StatusBadge from '$lib/components/servers/status-badge.svelte';
 	import { powerAction, type PowerAction } from '$lib/api/servers';
-	import { servers } from '$lib/servers.svelte';
+	import { portClashes, servers } from '$lib/servers.svelte';
 	import { session } from '$lib/session.svelte';
 	import { socket } from '$lib/realtime/socket.svelte';
 	import { visibleTabs } from '$lib/server-tabs';
@@ -25,6 +25,7 @@
 	const metrics = $derived(servers.metrics(server.id));
 	const status = $derived(servers.statusOf(server.id));
 	const tabs = $derived(visibleTabs(server, session.superuser));
+	const clashes = $derived(portClashes(servers.list, server.id));
 	const canCommand = $derived(server.permissions.includes('COMMANDS'));
 	const busy = $derived(status === 'installing' || server.flags.updating);
 	const address = $derived(
@@ -122,6 +123,15 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if clashes.length}
+			<p class="mt-3 text-sm text-warning">
+				{t('server.portClash', {
+					port: server.address.port,
+					names: clashes.map((other) => other.name).join(', ')
+				})}
+			</p>
+		{/if}
 
 		<nav
 			aria-label={t('nav.servers')}

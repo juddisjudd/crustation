@@ -26,10 +26,19 @@ export const server = {
 		folder: 'Folder',
 		command: 'Start command'
 	},
+	portClash: 'Port {port} is also used by {names}. Only one of them can start.',
 	console: {
 		live: 'Live',
 		offline: 'Offline',
 		clear: 'Clear view',
+		macros: {
+			add: 'Save a command',
+			label: 'Button label',
+			command: 'Command',
+			remove: 'Remove {name}',
+			saved: 'Saved {name}',
+			hint: 'Saved commands appear as buttons for everybody who can use this console.'
+		},
 		timestamps: 'Show timestamps',
 		download: 'Download the buffer',
 		search: 'Search',
