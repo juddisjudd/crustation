@@ -7,6 +7,7 @@ mod error;
 mod events;
 mod files;
 mod install;
+mod items;
 mod java;
 mod mcp;
 mod nbt;

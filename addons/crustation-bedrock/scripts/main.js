@@ -17,7 +17,7 @@
  * three and says nothing.
  */
 
-import { system, world } from '@minecraft/server';
+import { ItemTypes, system, world } from '@minecraft/server';
 import { http, HttpRequest, HttpRequestMethod, HttpHeader } from '@minecraft/server-net';
 import { variables } from '@minecraft/server-admin';
 
@@ -46,6 +46,8 @@ function readVariable(name) {
 let held = [];
 let talking = false;
 let complained = false;
+/** Set by the panel's reply. It only asks when it is holding no list at all. */
+let itemsWanted = false;
 
 function remember(event) {
 	if (held.length >= MOST_HELD) held.shift();
@@ -111,6 +113,29 @@ function positions() {
 	return out;
 }
 
+/** Whether the panel's reply asked for the item list. A panel too old to say
+ * is a panel that does not want one. */
+function asked(body) {
+	try {
+		return JSON.parse(body)?.data?.want_items === true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Every item this server will take for `give`, add-ons included. Asking the
+ * game beats any list the panel could ship: it is this version, these packs.
+ */
+function everyItem() {
+	try {
+		return ItemTypes.getAll().map((one) => one.id);
+	} catch (error) {
+		say(`cannot list the items: ${error}`);
+		return null;
+	}
+}
+
 async function checkIn() {
 	if (talking) return;
 	talking = true;
@@ -121,16 +146,24 @@ async function checkIn() {
 	held = [];
 
 	try {
+		const payload = { events: sending, players: positions() };
+		if (itemsWanted) {
+			const items = everyItem();
+			if (items) payload.items = items;
+		}
+
 		const request = new HttpRequest(`${PANEL}/api/v1/bridge/${TOKEN}`);
 		request.method = HttpRequestMethod.Post;
 		request.headers = [new HttpHeader('Content-Type', 'application/json')];
-		request.body = JSON.stringify({ events: sending, players: positions() });
+		request.body = JSON.stringify(payload);
 		request.timeout = 10;
 
 		const reply = await http.request(request);
 		if (reply.status < 200 || reply.status >= 300) {
 			throw new Error(`panel answered ${reply.status}`);
 		}
+		if (payload.items) say(`sent ${payload.items.length} item ids`);
+		itemsWanted = asked(reply.body);
 		if (complained) say('panel reachable again');
 		complained = false;
 	} catch (error) {

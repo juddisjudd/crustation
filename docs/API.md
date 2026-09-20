@@ -66,6 +66,7 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | GET    | `/servers/stats`        | Recent history for every server the caller can see, in one call: `?minutes=&points=` → `{since, minutes, series: {"<id>": [{cpu, memory_percent} | null]}}`. Averaged into `points` buckets so a line is a fixed length; a bucket nothing was sampled in is `null`, which draws as a gap rather than a floor. |
 | GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. Requires `PLAYERS`. |
 | POST   | `/servers/{id}/player-actions` | One thing to do about one player. Requires `PLAYERS`, or `COMMANDS` for `give`, `teleport`, `say` and `whisper`. |
+| GET    | `/servers/{id}/items`   | What `give` will take: `{source, kind, items: [{id, name}]}`, sorted by id. `source` is `server` when a Bedrock add-on has listed what the running server actually holds, add-ons and all, and `catalogue` when the panel is offering the vanilla list for that edition instead. Requires `COMMANDS`. |
 | GET    | `/servers/{id}/map`     | A web map installed on the server: `{found}` alone, or `{found, id, name, port, enabled, answering, config}`. Requires `CONSOLE`. |
 | GET    | `/servers/{id}/positions` | Where everybody is standing, asked of the server over RCON: `{supported, reason?, players: [{name, x, y, z, dimension}]}`. Requires `CONSOLE`. |
 | GET/POST/DELETE | `/servers/{id}/players/{list}` | One of the files the game keeps beside the world. `POST {value, reason?, level?}` adds, `DELETE {value}` removes.                                                                                                                                                             |
@@ -417,7 +418,7 @@ world's list rather than only the running one, and revokes the token.
 
 | Method | Path                    | Purpose                                                                                      |
 | ------ | ----------------------- | -------------------------------------------------------------------------------------------- |
-| POST   | `/bridge/{token}`       | What the add-on itself calls. `{events, players}` in, nothing out. Not nested under `/servers` and takes no session: the token is the whole credential. An unknown one answers `404`. |
+| POST   | `/bridge/{token}`       | What the add-on itself calls. `{events, players, items?}` in, `{want_items}` out. Not nested under `/servers` and takes no session: the token is the whole credential. An unknown one answers `404`. |
 
 ```json
 {
@@ -440,6 +441,14 @@ Positions are held in memory only and feed `GET /servers/{id}/positions`, which 
 tab works on Bedrock at all. The channel is one-way on purpose: commands already reach a Bedrock
 server on its own standard input, so there is nothing to gain from letting the panel push work
 into the game.
+
+The one thing the panel asks for is the item list. Every reply carries `{want_items}`, which is
+true only while the panel holds no list for that server; the add-on then puts `items`, every id
+`ItemTypes.getAll()` knows, into its next check-in and the panel stops asking. It is sent this
+way round rather than every second because it runs to a couple of thousand ids and only changes
+when the packs or the version do. A panel that restarts has forgotten it and asks again. This is
+the only way a panel can know about an item an add-on brought, so it is what `GET
+/servers/{id}/items` answers with whenever it has one.
 ## Panel
 
 | Method    | Path                                                           | Purpose                                                      |

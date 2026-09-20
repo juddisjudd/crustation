@@ -46,6 +46,20 @@ export interface Acted {
 	restart_required: boolean;
 }
 
+export interface GiveableItem {
+	/** Without a namespace for anything vanilla, as both editions read it. */
+	id: string;
+	name: string;
+}
+
+export interface ItemCatalogue {
+	/** `server` when the add-on said what it holds, `catalogue` when the panel
+	 * is offering the vanilla list because nothing could be asked. */
+	source: 'server' | 'catalogue';
+	kind: string;
+	items: GiveableItem[];
+}
+
 export type Spot = string | { x: number; y: number; z: number };
 
 export type PlayerAction =
@@ -79,6 +93,9 @@ export const removeFromList = (serverId: string, list: string, value: string) =>
 
 export const actOnPlayer = (serverId: string, action: PlayerAction) =>
 	api.post<Acted>(`/servers/${serverId}/player-actions`, action);
+
+export const giveableItems = (serverId: string) =>
+	api.get<ItemCatalogue>(`/servers/${serverId}/items`);
 
 /** A head render, from the community avatar service Minecraft panels use. */
 export const headUrl = (player: { uuid?: string | null; name: string }) =>

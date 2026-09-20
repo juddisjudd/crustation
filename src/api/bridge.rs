@@ -52,6 +52,11 @@ struct CheckIn {
     events: Vec<Happening>,
     #[serde(default)]
     players: Vec<Spot>,
+    /// Every item id the running server knows. Sent only when the reply to the
+    /// last check-in asked for it, since it is long and never changes on its
+    /// own.
+    #[serde(default)]
+    items: Option<Vec<String>>,
 }
 
 /// The add-on checking in: here is what happened, what should I run?
@@ -84,8 +89,13 @@ async fn exchange(
         }
     }
 
+    if let Some(items) = body.items {
+        state.bridges.took_items(id, items).await;
+    }
     state.bridges.arrived(id, body.players).await;
-    Ok(Done)
+    Ok(OkJson(
+        json!({ "want_items": state.bridges.wants_items(id).await }),
+    ))
 }
 
 /// Bedrock's ping carries no player list at all, so who is on is only known

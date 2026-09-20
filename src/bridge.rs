@@ -78,6 +78,9 @@ impl Happening {
 struct Link {
     last_seen: Option<DateTime<Utc>>,
     players: Vec<Spot>,
+    /// Every item the running server knows, add-ons included. Asked for once
+    /// and kept, since it only changes when the packs or the version do.
+    items: Option<Vec<String>>,
 }
 
 /// Every server with the add-on installed, and what it last said.
@@ -93,6 +96,31 @@ impl Bridges {
         let link = links.entry(id).or_default();
         link.last_seen = Some(Utc::now());
         link.players = players;
+    }
+
+    /// The add-on answering the panel's standing request for the item list.
+    pub async fn took_items(&self, id: Uuid, items: Vec<String>) {
+        self.links.write().await.entry(id).or_default().items = Some(items);
+    }
+
+    /// What to tell the add-on on its next check-in. Unlike where people are,
+    /// a list held from before the server stopped is still true, so this only
+    /// asks again when the panel has nothing at all.
+    pub async fn wants_items(&self, id: Uuid) -> bool {
+        !self
+            .links
+            .read()
+            .await
+            .get(&id)
+            .is_some_and(|link| link.items.is_some())
+    }
+
+    pub async fn items(&self, id: Uuid) -> Option<Vec<String>> {
+        self.links
+            .read()
+            .await
+            .get(&id)
+            .and_then(|link| link.items.clone())
     }
 
     pub async fn players(&self, id: Uuid) -> Vec<Spot> {
@@ -170,6 +198,30 @@ mod tests {
         bridges.arrived(id, vec![somebody(), somebody()]).await;
         bridges.arrived(id, vec![somebody()]).await;
         assert_eq!(bridges.players(id).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_item_list_is_asked_for_until_it_arrives_and_then_left_alone() {
+        let bridges = Bridges::default();
+        let id = Uuid::new_v4();
+        assert!(bridges.wants_items(id).await);
+        assert!(bridges.items(id).await.is_none());
+
+        bridges.took_items(id, vec!["diamond".into()]).await;
+        assert!(!bridges.wants_items(id).await);
+        assert_eq!(bridges.items(id).await.unwrap(), vec!["diamond"]);
+    }
+
+    #[tokio::test]
+    async fn a_server_that_has_gone_quiet_still_knows_its_items() {
+        let bridges = Bridges::default();
+        let id = Uuid::new_v4();
+        bridges.took_items(id, vec!["diamond".into()]).await;
+        // Never checked in, so not connected, and where people are is unknown.
+        assert!(!bridges.connected(id).await);
+        assert!(bridges.players(id).await.is_empty());
+        // The items it holds did not stop being true.
+        assert_eq!(bridges.items(id).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

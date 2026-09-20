@@ -18,7 +18,7 @@
     }
   ],
   "dependencies": [
-    { "module_name": "@minecraft/server", "version": "1.11.0" },
+    { "module_name": "@minecraft/server", "version": "1.17.0" },
     { "module_name": "@minecraft/server-net", "version": "1.0.0-beta" },
     { "module_name": "@minecraft/server-admin", "version": "1.0.0-beta" }
   ]

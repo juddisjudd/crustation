@@ -23,6 +23,32 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/players", get(overview))
         .route("/{id}/player-actions", post(act))
         .route("/{id}/players/{list}", get(read).post(add).delete(remove))
+        .route("/{id}/items", get(items))
+}
+
+/// What `give` will take on this server. A Bedrock server running the add-on
+/// has said what it actually holds, which is the only answer that counts
+/// add-ons in; everything else gets the vanilla list for its edition.
+async fn items(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    identity
+        .require_server(&state.db, id, ServerPerm::Commands)
+        .await?;
+    let row = super::servers::load(&state, id).await?;
+
+    let (source, items) = match state.bridges.items(id).await {
+        Some(said) => ("server", crate::items::reported(&row.kind, &said)),
+        None => ("catalogue", crate::items::catalogue(&row.kind).to_vec()),
+    };
+
+    Ok(OkJson(json!({
+        "source": source,
+        "kind": row.kind,
+        "items": items,
+    })))
 }
 
 /// One of the JSON files a server keeps beside its world.

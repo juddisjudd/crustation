@@ -16,7 +16,7 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import { errorMessage } from '$lib/api/servers';
 	import { actOnPlayer, type PlayerAction } from '$lib/api/players';
-	import { COMMON_ITEMS } from '$lib/items';
+	import ItemPicker from './item-picker.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
@@ -229,19 +229,16 @@
 				<Dialog.Title>{t('players.act.giveTitle', { name: player })}</Dialog.Title>
 				<Dialog.Description>{t('players.act.giveHint')}</Dialog.Description>
 			</Dialog.Header>
-			<div class="grid grid-cols-[1fr_6rem] gap-3">
+			<div class="grid gap-3">
 				<div class="grid gap-2">
 					<Label for="item">{t('players.act.item')}</Label>
-					<Input id="item" bind:value={item} list="common-items" spellcheck={false} />
+					<ItemPicker {serverId} bind:value={item} />
 				</div>
-				<div class="grid gap-2">
+				<div class="grid w-24 gap-2">
 					<Label for="count">{t('players.act.count')}</Label>
 					<Input id="count" type="number" min="1" max="6400" bind:value={count} />
 				</div>
 			</div>
-			<datalist id="common-items">
-				{#each COMMON_ITEMS as one (one)}<option value={one}></option>{/each}
-			</datalist>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (asking = null)}
 					>{t('common.actions.cancel')}</Button
