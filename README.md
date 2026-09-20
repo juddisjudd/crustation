@@ -1,27 +1,34 @@
 # Crustation
 
-A control panel for game servers. One Rust binary supervises the server processes and serves a
-Svelte web interface. Crab, Rust, shells — the name wrote itself.
+Run your Minecraft servers from a web page. One Rust binary supervises the servers and serves the
+interface, so there is one container to deploy and one SQLite file to back up.
 
-**Status: early.** Sign-in, the server list, start/stop/restart/kill, a live console you can type
-into, host and per-process stats, and the Docker and Unraid packaging all work. You can create a
-server from the interface: Vanilla, Paper, Purpur, Fabric, NeoForge and Bedrock download and set
-themselves up on a JVM and GC flags that suit the version, or you can import one you already have
-from a zip, a folder or a link. Files, backups, schedules, users and webhooks do not exist yet.
-[docs/ROADMAP.md](docs/ROADMAP.md) tracks the order I'm building them in.
+Crab, Rust, shells. The name wrote itself.
+
+> **Built with AI, directed by a human.** Most of the code here is written by an AI assistant
+> working to decisions I make: the architecture, the API contract in [docs/API.md](docs/API.md),
+> and the order of work in [docs/ROADMAP.md](docs/ROADMAP.md). I review what lands.
+>
+> This is not prompt-and-ship. Nothing merges that fails `cargo fmt`, `clippy -D warnings`, the
+> test suite or the interface build, and features are exercised against a running panel before
+> they go out. It runs on your hardware, so you should know how it was made.
 
 ![Overview](docs/screenshots/overview.png)
 
-![Console](docs/screenshots/console.png)
+## What works today
 
-## Why another one
+- **Create a server** from Vanilla, Paper, Purpur, Fabric, NeoForge or Bedrock. Crustation
+  downloads it, accepts the EULA, sets the port and picks a Java version that suits it.
+- **Import a server** you already have, from a zip, a folder on the host, or a download link.
+- **Start, stop, restart and kill**, with crash detection and restart on boot.
+- **A live console** you can type into. Commands go over RCON when a Java server has it set up.
+- **Stats** for the host and for each server process, with history.
+- **Users, roles and API keys**, with per-server permissions.
 
-[Crafty Controller](https://gitlab.com/crafty-controller/crafty-4) has the right idea and I ran it
-for a while. Crustation is my take on the same tool with different foundations: one binary and one
-SQLite file to deploy, an API built for a single-page interface, and a WebSocket that re-checks
-permissions on every event it sends.
+Not there yet: files, backups, schedules, player lists, webhooks, and the screens for managing
+users. [docs/ROADMAP.md](docs/ROADMAP.md) has the order they are coming in.
 
-## Running it
+## Install
 
 ### Docker
 
@@ -36,22 +43,20 @@ docker run -d --name crustation \
 ```
 
 `docker-compose.yml` does the same thing. The image carries Java 8, 11, 17, 21 and 25, and each
-server is started on whichever of them its version asks for.
-
-On first start the panel creates an administrator. Set `CRUSTATION_ADMIN_USERNAME` and
-`CRUSTATION_ADMIN_PASSWORD`, or let it generate a password into `config/first-login.txt`. Then open
-<http://localhost:8080>.
+server starts on whichever one its version asks for.
 
 ### Unraid
 
-The Unraid template lives in
-[juddisjudd/unraid-templates](https://github.com/juddisjudd/unraid-templates), which is the
-repository Community Applications already indexes. Add it through **Docker → Add Container →
-Template URL** with
-<https://raw.githubusercontent.com/juddisjudd/unraid-templates/main/templates/crustation.xml>, or
-add that repository under **Community Applications → Additional Repositories**. It maps config,
-servers and backups as three shares and honours `PUID` / `PGID`, so files stay owned by your Unraid
-user instead of root.
+The template lives in
+[juddisjudd/unraid-templates](https://github.com/juddisjudd/unraid-templates), the repository
+Community Applications already indexes. Two ways to add it:
+
+- **Docker → Add Container → Template URL**, then paste
+  <https://raw.githubusercontent.com/juddisjudd/unraid-templates/main/templates/crustation.xml>
+- **Community Applications → Additional Repositories**, then add that repository
+
+It maps config, servers and backups as three shares and honours `PUID` and `PGID`, so files stay
+owned by your Unraid user rather than root.
 
 ### From source
 
@@ -60,13 +65,27 @@ cd web && pnpm install && pnpm build && cd ..
 cargo run --release
 ```
 
-Data lands in `./config`, `./servers` and `./backups`. For interface work run `pnpm dev` in `web/`;
-the Vite server proxies the API and WebSocket to the panel on port 8080.
+Data lands in `./config`, `./servers` and `./backups`. For interface work, run `pnpm dev` in
+`web/`; Vite proxies the API and the WebSocket to the panel on port 8080.
+
+## First sign-in
+
+Open <http://localhost:8080>. The panel creates an administrator the first time it starts.
+
+Set `CRUSTATION_ADMIN_USERNAME` and `CRUSTATION_ADMIN_PASSWORD` to choose your own. Otherwise
+Crustation generates a password and writes it to `config/first-login.txt`. Change it after signing
+in, then delete that file.
+
+![Creating a server](docs/screenshots/new-server.png)
+
+![A server](docs/screenshots/server.png)
+
+![Console](docs/screenshots/console.png)
 
 ## Configuration
 
 `config/crustation.toml` appears on first start and can be edited. Environment variables override
-it, which is how the container is configured:
+it, which is how the container is configured.
 
 | Variable | Meaning |
 | --- | --- |
@@ -76,7 +95,14 @@ it, which is how the container is configured:
 | `CRUSTATION_ADMIN_USERNAME`, `CRUSTATION_ADMIN_PASSWORD` | First administrator |
 | `CRUSTATION_LOG` | Log filter, for example `debug` |
 
-## Layout
+## Why another one
+
+[Crafty Controller](https://gitlab.com/crafty-controller/crafty-4) has the right idea and I ran it
+for a while. Crustation is the same tool on different foundations: one binary and one SQLite file
+to deploy, an API built for a single-page interface, and a WebSocket that re-checks permissions on
+every event it sends.
+
+## Contributing
 
 ```
 src/            the panel: http, auth, supervisor, providers, installs, stats, events
@@ -89,6 +115,13 @@ docs/           architecture, API contract, roadmap
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how the pieces fit together.
 [docs/API.md](docs/API.md) is the contract between the panel and the interface; change one side
 without the other and things break quietly.
+
+Before opening a pull request:
+
+```bash
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cd web && pnpm check && pnpm lint && pnpm build
+```
 
 ## Licence
 
