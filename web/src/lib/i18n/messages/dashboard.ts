@@ -1,0 +1,23 @@
+export const dashboard = {
+	title: 'Overview',
+	runningCount: '{running} of {total} servers running',
+	loading: 'Loading servers…',
+	hostUsage: 'Host usage',
+	storage: 'Storage',
+	cpu: 'CPU',
+	memory: 'Memory',
+	hostCpu: 'Host CPU',
+	hostMemory: 'Host memory',
+	servers: 'Servers',
+	players: 'Players',
+	cores: '{cores} cores',
+	memoryOf: '{used} of {total}',
+	stoppedCount: '{count} stopped',
+	slotsOf: 'of {max} slots',
+	acrossRunning: 'Across running servers',
+	diskUsage: 'Disk {mount} usage',
+	searchServers: 'Search servers…',
+	emptyTitle: 'No servers yet',
+	emptyBody: 'Server creation is not built yet. The roadmap has it next.',
+	noMatch: 'No servers match “{query}”.'
+} as const;

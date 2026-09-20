@@ -1,0 +1,19 @@
+import type { Server, ServerPermission } from '$lib/api/types';
+import type { MessageKey } from '$lib/i18n/index.svelte';
+
+export interface ServerTab {
+	slug: string;
+	label: MessageKey;
+	permission?: ServerPermission;
+}
+
+export const serverTabs: ServerTab[] = [
+	{ slug: '', label: 'nav.tabs.overview' },
+	{ slug: 'console', label: 'nav.tabs.console', permission: 'CONSOLE' }
+];
+
+export function visibleTabs(server: Server, isAdmin: boolean) {
+	return serverTabs.filter(
+		(tab) => !tab.permission || isAdmin || server.permissions.includes(tab.permission)
+	);
+}
