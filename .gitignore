@@ -1,0 +1,14 @@
+/target
+/.run
+/data
+/config
+/servers
+/backups
+
+web/node_modules
+web/.svelte-kit
+web/build
+
+.env
+.DS_Store
+Thumbs.db

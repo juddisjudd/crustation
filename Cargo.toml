@@ -1,0 +1,47 @@
+[package]
+name = "crustation"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Game server control panel: supervise Minecraft and friends from one Rust binary"
+repository = "https://github.com/juddisjudd/crustation"
+rust-version = "1.85"
+
+[dependencies]
+anyhow = "1.0.104"
+argon2 = "0.6.0"
+axum = { version = "0.8", features = ["ws", "macros"] }
+axum-extra = { version = "0.12.6", features = ["cookie", "typed-header"] }
+base64 = "0.23.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+croner = "4.0.0"
+futures = "0.3.34"
+iana-time-zone = "0.1.65"
+jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+rand = "0.10.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["charset", "http2", "json", "rustls", "stream"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+shell-words = "1.1.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "sqlite", "chrono", "uuid", "macros", "migrate"] }
+sysinfo = "0.39.6"
+thiserror = "2.0.20"
+time = "0.3.45"
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-util = { version = "0.7.19", features = ["io"] }
+toml = "1.1.6"
+tower-http = { version = "0.7.1", features = ["fs", "trace", "compression-gzip", "set-header"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
+walkdir = "2.5.0"
+zip = "8.6.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.189"
