@@ -39,6 +39,7 @@ export interface ServerStats {
 	players_max: number | null;
 	version?: string | null;
 	motd?: string | null;
+	latency_ms?: number | null;
 	started_at: string | null;
 	world_size_bytes?: number | null;
 }

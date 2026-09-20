@@ -16,6 +16,7 @@ interface LiveStats {
 	memory_bytes?: number;
 	memory_percent?: number;
 	players_online?: number | null;
+	latency_ms?: number | null;
 	players_max?: number | null;
 }
 
@@ -85,6 +86,7 @@ class Servers {
 			max: live?.players_max ?? stats?.players_max ?? 0,
 			version: stats?.version ?? '',
 			motd: stats?.motd ?? '',
+			latencyMs: live?.latency_ms ?? stats?.latency_ms ?? null,
 			started: running ? (stats?.started_at ?? null) : null,
 			worldSizeBytes: stats?.world_size_bytes ?? 0,
 			port: server?.address.port

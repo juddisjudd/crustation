@@ -1,8 +1,9 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card/index.js';
 	import Meter from '$lib/components/meter.svelte';
+	import MotdEditor from '$lib/components/motd-editor.svelte';
 	import { servers, statusLabel } from '$lib/servers.svelte';
-	import { bytes, dateTime, duration, kindLabel, parseTime, percent, stripMotd } from '$lib/format';
+	import { bytes, dateTime, duration, kindLabel, parseTime, percent } from '$lib/format';
 	import { t } from '$lib/i18n/index.svelte';
 
 	let { data } = $props();
@@ -11,6 +12,8 @@
 	const metrics = $derived(servers.metrics(server.id));
 	const status = $derived(servers.statusOf(server.id));
 	const startedAt = $derived(parseTime(metrics.started));
+	const edition = $derived(server.kind === 'minecraft_bedrock' ? 'bedrock' : 'java');
+	const canConfigure = $derived(server.permissions.includes('CONFIG'));
 
 	let now = $state(Date.now());
 	$effect(() => {
@@ -69,55 +72,69 @@
 		</div>
 	</section>
 
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>{t('server.overview.details')}</Card.Title>
-		</Card.Header>
-		<Card.Content>
-			<dl class="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
-				<div>
-					<dt class="text-muted-foreground">{t('server.overview.motd')}</dt>
-					<dd class="mt-1">{stripMotd(metrics.motd) || '—'}</dd>
-				</div>
-				<div>
-					<dt class="text-muted-foreground">{t('server.overview.version')}</dt>
-					<dd class="mt-1">{metrics.version || '—'}</dd>
-				</div>
-				<div>
-					<dt class="text-muted-foreground">{t('server.overview.type')}</dt>
-					<dd class="mt-1">{kindLabel(server.kind)}</dd>
-				</div>
-				<div>
-					<dt class="text-muted-foreground">{t('server.overview.port')}</dt>
-					<dd class="mt-1 font-mono text-xs">{server.address.port}</dd>
-				</div>
-				<div>
-					<dt class="text-muted-foreground">{t('server.overview.autoStart')}</dt>
-					<dd class="mt-1">
-						{server.settings.autostart
-							? t('server.overview.autoStartOn', { seconds: server.settings.autostart_delay })
-							: t('common.state.no')}
-					</dd>
-				</div>
-				<div>
-					<dt class="text-muted-foreground">{t('server.overview.memoryLimit')}</dt>
-					<dd class="mt-1 tabular-nums">
-						{server.settings.java.min_memory_mb} – {server.settings.java.max_memory_mb} MB
-					</dd>
-				</div>
-				<div class="sm:col-span-2">
-					<dt class="text-muted-foreground">{t('server.overview.folder')}</dt>
-					<dd class="mt-1 truncate font-mono text-xs" title={server.settings.directory}>
-						{server.settings.directory}
-					</dd>
-				</div>
-				<div class="sm:col-span-2">
-					<dt class="text-muted-foreground">{t('server.overview.command')}</dt>
-					<dd class="mt-1 truncate font-mono text-xs" title={server.settings.command}>
-						{server.settings.command || '—'}
-					</dd>
-				</div>
-			</dl>
-		</Card.Content>
-	</Card.Root>
+	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>{t('server.overview.details')}</Card.Title>
+			</Card.Header>
+			<Card.Content>
+				<dl class="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
+					<div>
+						<dt class="text-muted-foreground">{t('server.overview.version')}</dt>
+						<dd class="mt-1">{metrics.version || '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-muted-foreground">{t('server.overview.type')}</dt>
+						<dd class="mt-1">{kindLabel(server.kind)}</dd>
+					</div>
+					<div>
+						<dt class="text-muted-foreground">{t('server.overview.port')}</dt>
+						<dd class="mt-1 font-mono text-xs">{server.address.port}</dd>
+					</div>
+					<div>
+						<dt class="text-muted-foreground">{t('server.overview.memoryLimit')}</dt>
+						<dd class="mt-1 tabular-nums">
+							{server.settings.java.min_memory_mb} – {server.settings.java.max_memory_mb} MB
+						</dd>
+					</div>
+					<div>
+						<dt class="text-muted-foreground">{t('server.overview.autoStart')}</dt>
+						<dd class="mt-1">
+							{server.settings.autostart
+								? t('server.overview.autoStartOn', { seconds: server.settings.autostart_delay })
+								: t('common.state.no')}
+						</dd>
+					</div>
+					<div>
+						<dt class="text-muted-foreground">{t('server.overview.latency')}</dt>
+						<dd class="mt-1 tabular-nums">
+							{metrics.latencyMs === null ? '—' : `${metrics.latencyMs} ms`}
+						</dd>
+					</div>
+					<div class="sm:col-span-2">
+						<dt class="text-muted-foreground">{t('server.overview.folder')}</dt>
+						<dd class="mt-1 truncate font-mono text-xs" title={server.settings.directory}>
+							{server.settings.directory}
+						</dd>
+					</div>
+					<div class="sm:col-span-2">
+						<dt class="text-muted-foreground">{t('server.overview.command')}</dt>
+						<dd class="mt-1 truncate font-mono text-xs" title={server.settings.command}>
+							{server.settings.command || '—'}
+						</dd>
+					</div>
+				</dl>
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>{t('server.motd.title')}</Card.Title>
+				<Card.Description>{t('server.motd.hint')}</Card.Description>
+			</Card.Header>
+			<Card.Content>
+				<MotdEditor serverId={server.id} {edition} canEdit={canConfigure} />
+			</Card.Content>
+		</Card.Root>
+	</div>
 </div>

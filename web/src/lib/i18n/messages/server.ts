@@ -24,7 +24,20 @@ export const server = {
 		autoStartOn: 'Yes, after {seconds}s',
 		memoryLimit: 'Memory',
 		folder: 'Folder',
+		latency: 'Ping',
 		command: 'Start command'
+	},
+	motd: {
+		title: 'Message of the day',
+		hint: 'What people see beside your server in their list.',
+		preview: 'How it will look',
+		empty: 'Nothing set yet.',
+		saved: 'Message of the day saved',
+		onRestart: 'It takes effect the next time the server starts.',
+		failed: 'Could not save that',
+		strip: 'Take the colours out',
+		overlong: 'Longer than 59 characters, so the game will cut it off.',
+		tooTall: 'Only the first {lines} line(s) will show.'
 	},
 	portClash: 'Port {port} is also used by {names}. Only one of them can start.',
 	console: {
@@ -39,6 +52,7 @@ export const server = {
 			saved: 'Saved {name}',
 			hint: 'Saved commands appear as buttons for everybody who can use this console.'
 		},
+		syntax: 'Colour the log',
 		timestamps: 'Show timestamps',
 		download: 'Download the buffer',
 		search: 'Search',
