@@ -9,22 +9,13 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// How long after its last word a server is still counted as connected. Three
 /// missed polls, so one slow tick does not make the interface flicker.
 const QUIET: chrono::Duration = chrono::Duration::seconds(6);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Spot {
-    pub name: String,
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub dimension: String,
-}
 
 /// Something the add-on saw happen.
 #[derive(Debug, Clone, Deserialize)]
@@ -77,7 +68,6 @@ impl Happening {
 #[derive(Default)]
 struct Link {
     last_seen: Option<DateTime<Utc>>,
-    players: Vec<Spot>,
     /// Every item the running server knows, add-ons included. Asked for once
     /// and kept, since it only changes when the packs or the version do.
     items: Option<Vec<String>>,
@@ -90,12 +80,10 @@ pub struct Bridges {
 }
 
 impl Bridges {
-    /// The add-on checking in with what it has seen.
-    pub async fn arrived(&self, id: Uuid, players: Vec<Spot>) {
-        let mut links = self.links.write().await;
-        let link = links.entry(id).or_default();
-        link.last_seen = Some(Utc::now());
-        link.players = players;
+    /// The add-on checking in. Nothing but the time is kept: the events it
+    /// brought have already gone to the console by now.
+    pub async fn arrived(&self, id: Uuid) {
+        self.links.write().await.entry(id).or_default().last_seen = Some(Utc::now());
     }
 
     /// The add-on answering the panel's standing request for the item list.
@@ -103,9 +91,9 @@ impl Bridges {
         self.links.write().await.entry(id).or_default().items = Some(items);
     }
 
-    /// What to tell the add-on on its next check-in. Unlike where people are,
-    /// a list held from before the server stopped is still true, so this only
-    /// asks again when the panel has nothing at all.
+    /// What to tell the add-on on its next check-in. A list held from before
+    /// the server stopped is still true, so this only asks again when the
+    /// panel has nothing at all.
     pub async fn wants_items(&self, id: Uuid) -> bool {
         !self
             .links
@@ -121,20 +109,6 @@ impl Bridges {
             .await
             .get(&id)
             .and_then(|link| link.items.clone())
-    }
-
-    pub async fn players(&self, id: Uuid) -> Vec<Spot> {
-        match self.connected(id).await {
-            true => self
-                .links
-                .read()
-                .await
-                .get(&id)
-                .map(|link| link.players.clone())
-                .unwrap_or_default(),
-            // Where everybody stood ten minutes ago is not where they are.
-            false => Vec::new(),
-        }
     }
 
     /// Whether the add-on has been heard from recently enough to trust.
@@ -164,40 +138,20 @@ impl Bridges {
 mod tests {
     use super::*;
 
-    fn somebody() -> Spot {
-        Spot {
-            name: "ohitsjudd".into(),
-            x: 1.0,
-            y: 64.0,
-            z: -2.0,
-            dimension: "minecraft:overworld".into(),
-        }
-    }
-
     #[tokio::test]
     async fn a_server_that_has_never_spoken_is_not_connected() {
         let bridges = Bridges::default();
         assert!(!bridges.connected(Uuid::new_v4()).await);
-        assert!(bridges.players(Uuid::new_v4()).await.is_empty());
+        assert!(bridges.last_seen(Uuid::new_v4()).await.is_none());
     }
 
     #[tokio::test]
-    async fn checking_in_makes_it_connected_and_carries_the_players() {
+    async fn checking_in_makes_it_connected() {
         let bridges = Bridges::default();
         let id = Uuid::new_v4();
-        bridges.arrived(id, vec![somebody()]).await;
+        bridges.arrived(id).await;
         assert!(bridges.connected(id).await);
-        assert_eq!(bridges.players(id).await.len(), 1);
         assert!(bridges.last_seen(id).await.is_some());
-    }
-
-    #[tokio::test]
-    async fn a_later_check_in_replaces_the_last_one_rather_than_adding_to_it() {
-        let bridges = Bridges::default();
-        let id = Uuid::new_v4();
-        bridges.arrived(id, vec![somebody(), somebody()]).await;
-        bridges.arrived(id, vec![somebody()]).await;
-        assert_eq!(bridges.players(id).await.len(), 1);
     }
 
     #[tokio::test]
@@ -217,9 +171,8 @@ mod tests {
         let bridges = Bridges::default();
         let id = Uuid::new_v4();
         bridges.took_items(id, vec!["diamond".into()]).await;
-        // Never checked in, so not connected, and where people are is unknown.
+        // Never checked in, so not connected.
         assert!(!bridges.connected(id).await);
-        assert!(bridges.players(id).await.is_empty());
         // The items it holds did not stop being true.
         assert_eq!(bridges.items(id).await.unwrap().len(), 1);
     }
@@ -228,10 +181,11 @@ mod tests {
     async fn forgetting_a_server_clears_it() {
         let bridges = Bridges::default();
         let id = Uuid::new_v4();
-        bridges.arrived(id, vec![somebody()]).await;
+        bridges.arrived(id).await;
+        bridges.took_items(id, vec!["diamond".into()]).await;
         bridges.forget(id).await;
         assert!(!bridges.connected(id).await);
-        assert!(bridges.players(id).await.is_empty());
+        assert!(bridges.items(id).await.is_none());
     }
 
     #[test]
@@ -265,10 +219,5 @@ mod tests {
         let sent = r#"{"kind":"chat","player":"ohitsjudd","message":"hi"}"#;
         let parsed: Happening = serde_json::from_str(sent).expect("parse");
         assert_eq!(parsed.as_console_line(), "<ohitsjudd> hi");
-
-        let spot = r#"{"name":"a","x":1.5,"y":64.0,"z":-2.5,"dimension":"minecraft:the_nether"}"#;
-        let parsed: Spot = serde_json::from_str(spot).expect("parse");
-        assert_eq!(parsed.dimension, "minecraft:the_nether");
-        assert_eq!(parsed.z, -2.5);
     }
 }

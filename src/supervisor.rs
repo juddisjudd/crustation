@@ -427,13 +427,6 @@ impl Supervisor {
         self.run(id, command, true).await
     }
 
-    /// The same, without putting it in the console. For what the panel asks on
-    /// a timer: a map that polls every few seconds would otherwise bury the log
-    /// everyone else is reading.
-    pub async fn ask_quietly(&self, id: Uuid, command: &str) -> Result<Outcome> {
-        self.run(id, command, false).await
-    }
-
     async fn run(&self, id: Uuid, command: &str, echo: bool) -> Result<Outcome> {
         if !self.state(id).await.is_live() {
             bail!("the server is not running");
@@ -468,11 +461,6 @@ impl Supervisor {
             via: "stdin",
             output: None,
         })
-    }
-
-    /// Whether the panel can expect an answer back from this server at all.
-    pub async fn can_ask(&self, id: Uuid) -> bool {
-        self.rcon_endpoint(id).await.is_some()
     }
 
     async fn rcon_endpoint(&self, id: Uuid) -> Option<crate::rcon::Endpoint> {

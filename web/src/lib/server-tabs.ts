@@ -14,7 +14,6 @@ export const serverTabs: ServerTab[] = [
 	{ slug: 'content', label: 'nav.tabs.content', permission: 'FILES' },
 	{ slug: 'players', label: 'nav.tabs.players', permission: 'PLAYERS' },
 	{ slug: 'chat', label: 'nav.tabs.chat', permission: 'CONSOLE' },
-	{ slug: 'map', label: 'nav.tabs.map', permission: 'CONSOLE' },
 	{ slug: 'settings', label: 'nav.tabs.settings', permission: 'CONFIG' }
 ];
 

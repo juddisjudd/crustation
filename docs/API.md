@@ -67,8 +67,6 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. A row in `known` is only ever `online` while the server is live, so one that stops with people on it reports nobody rather than leaving them there. Requires `PLAYERS`. |
 | POST   | `/servers/{id}/player-actions` | One thing to do about one player. Requires `PLAYERS`, or `COMMANDS` for `give`, `teleport`, `say` and `whisper`. |
 | GET    | `/servers/{id}/items`   | What `give` will take: `{source, kind, items: [{id, name, category, icon?}]}`, sorted by id. `source` is `server` when a Bedrock add-on has listed what the running server actually holds, add-ons and all, and `catalogue` when the panel is offering the vanilla list for that edition instead. `category` is a creative tab, or `other` for anything unplaced. `icon` is present when a picture exists, and asking for the list is what starts the panel filling its picture cache. Requires `COMMANDS`. |
-| GET    | `/servers/{id}/map`     | A web map installed on the server: `{found}` alone, or `{found, id, name, port, enabled, answering, config}`. Requires `CONSOLE`. |
-| GET    | `/servers/{id}/positions` | Where everybody is standing, asked of the server over RCON: `{supported, reason?, players: [{name, x, y, z, dimension}]}`. Requires `CONSOLE`. |
 | GET/POST/DELETE | `/servers/{id}/players/{list}` | One of the files the game keeps beside the world. `POST {value, reason?, level?}` adds, `DELETE {value}` removes.                                                                                                                                                             |
 
 `POST /servers/{id}/player-actions` takes one `action` and whatever that action needs:
@@ -102,16 +100,6 @@ The reply is `{via, ran, output?, restart_required}`.
   making a row the game ignores.
 - Every argument is refused if it carries a control character. A command leaves over stdin as one
   line, so a line break in a name would be a second command.
-
-`GET /servers/{id}/map` looks for a web map somebody installed on the server and reads the port
-out of its own settings file, so the interface can show the real thing rather than an imitation of
-it. It knows squaremap, Pl3xMap, BlueMap and Dynmap, as a plugin or as a mod. `answering` is
-proven by connecting, so a plugin that has not started yet reads as false.
-
-`GET /servers/{id}/positions` asks the running server where everybody is, with `list` and then
-`data get entity <name> Pos`. It needs RCON, because stdin sends commands but reads nothing back,
-and it needs Java, because Bedrock has no RCON at all. It draws no terrain: it is the fallback for
-a server with no map plugin, not a replacement for one.
 
 
 A server object is flat and honest about what is derived:
@@ -460,10 +448,8 @@ world's list rather than only the running one, and revokes the token.
 
 Events become console lines written the way the Java server writes the same thing, so the chat
 tab, the search and the colouring all suit them already without knowing where they came from.
-Positions are held in memory only and feed `GET /servers/{id}/positions`, which is why the map
-tab works on Bedrock at all. The channel is one-way on purpose: commands already reach a Bedrock
-server on its own standard input, so there is nothing to gain from letting the panel push work
-into the game.
+The channel is one-way on purpose: commands already reach a Bedrock server on its own standard
+input, so there is nothing to gain from letting the panel push work into the game.
 
 The one thing the panel asks for is the item list. Every reply carries `{want_items}`, which is
 true only while the panel holds no list for that server; the add-on then puts `items`, every id

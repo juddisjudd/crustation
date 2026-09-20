@@ -70,10 +70,6 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 - A chat tab: what people said, who came and went, and what they earned, lifted out of the console
   stream, with a box to talk back as the server. Bedrock writes no chat to its console, and the tab
   says so rather than looking broken.
-- A map tab. It finds squaremap, Pl3xMap, BlueMap or Dynmap where the server keeps it, reads the
-  port from that project's own settings and embeds the real map. With none installed it falls back
-  to asking the server over RCON where everybody is standing and plotting that on a grid, which
-  needs no plugin and draws no terrain.
 - The console reads like a log: the timestamp, thread and level dimmed, chat, addresses, quoted
   text and numbers picked out, all of it behind a switch for anyone who would rather it plain.
 - Add-ons, installed from the file browser. A .mcaddon, .mcpack or zip is opened, every pack

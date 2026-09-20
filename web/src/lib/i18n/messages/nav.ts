@@ -28,7 +28,6 @@ export const nav = {
 		settings: 'Settings',
 		files: 'Files',
 		chat: 'Chat',
-		map: 'Map',
 		players: 'Players',
 		content: 'Add-ons'
 	}

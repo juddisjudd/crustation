@@ -93,26 +93,6 @@ const watching = [
 
 say(`watching: ${watching.join(', ') || 'nothing'}`);
 
-/** Where everybody is, which is the whole point of the map. */
-function positions() {
-	const out = [];
-	try {
-		for (const player of world.getAllPlayers()) {
-			const at = player.location;
-			out.push({
-				name: player.name,
-				x: Math.round(at.x * 100) / 100,
-				y: Math.round(at.y * 100) / 100,
-				z: Math.round(at.z * 100) / 100,
-				dimension: player.dimension.id
-			});
-		}
-	} catch (error) {
-		say(`cannot read where players are: ${error}`);
-	}
-	return out;
-}
-
 /** Whether the panel's reply asked for the item list. A panel too old to say
  * is a panel that does not want one. */
 function asked(body) {
@@ -146,7 +126,7 @@ async function checkIn() {
 	held = [];
 
 	try {
-		const payload = { events: sending, players: positions() };
+		const payload = { events: sending };
 		if (itemsWanted) {
 			const items = everyItem();
 			if (items) payload.items = items;

@@ -10,7 +10,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::auth::Identity;
-use crate::bridge::{Happening, Spot};
+use crate::bridge::Happening;
 use crate::error::{ApiError, ApiResult, Done, Ok as OkJson};
 use crate::perms::Server as ServerPerm;
 use crate::state::AppState;
@@ -50,8 +50,6 @@ fn addon_dir() -> PathBuf {
 struct CheckIn {
     #[serde(default)]
     events: Vec<Happening>,
-    #[serde(default)]
-    players: Vec<Spot>,
     /// Every item id the running server knows. Sent only when the reply to the
     /// last check-in asked for it, since it is long and never changes on its
     /// own.
@@ -92,7 +90,7 @@ async fn exchange(
     if let Some(items) = body.items {
         state.bridges.took_items(id, items).await;
     }
-    state.bridges.arrived(id, body.players).await;
+    state.bridges.arrived(id).await;
     Ok(OkJson(
         json!({ "want_items": state.bridges.wants_items(id).await }),
     ))
