@@ -197,7 +197,7 @@
 
 <svelte:head><title>{t('admin.users.title')} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-5xl px-4 py-8 md:px-8">
+<div class="mx-auto w-full max-w-6xl px-4 py-8 md:px-8">
 	<PageHeader title={t('admin.users.title')} description={t('admin.users.description')}>
 		{#snippet actions()}
 			<Button onclick={startAdd}>

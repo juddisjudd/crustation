@@ -5,6 +5,7 @@
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import EraserIcon from '@lucide/svelte/icons/eraser';
+	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import RegexIcon from '@lucide/svelte/icons/regex';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -54,7 +55,28 @@
 	let hidden = $state<Level[]>([]);
 	let query = $state('');
 	let asRegex = $state(false);
-	let timestamps = $state(false);
+	let timestamps = $state(remembered('timestamps', false));
+	let syntax = $state(remembered('syntax', true));
+
+	// Two view switches worth keeping between visits; nothing else is stored,
+	// and a window that refuses storage just forgets them.
+	function remembered(name: string, fallback: boolean) {
+		try {
+			const held = localStorage.getItem(`crustation.console.${name}`);
+			return held === null ? fallback : held === 'true';
+		} catch {
+			return fallback;
+		}
+	}
+
+	$effect(() => {
+		try {
+			localStorage.setItem('crustation.console.syntax', String(syntax));
+			localStorage.setItem('crustation.console.timestamps', String(timestamps));
+		} catch {
+			// Nothing to do: the view works either way.
+		}
+	});
 
 	const broken = $derived(badRegex(query, asRegex));
 	const matcher = $derived(broken ? null : matcherFor(query, asRegex));
@@ -258,15 +280,10 @@
 
 <div class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 md:px-8">
 	<div
-		class="terminal relative flex h-[calc(100svh-17rem)] min-h-[360px] flex-col overflow-hidden rounded-lg border bg-[#0a0a0a] text-[#ededed] shadow-xs"
+		class="terminal relative flex h-[calc(100svh-16rem)] min-h-90 flex-col overflow-hidden rounded-lg border bg-[#0a0a0a] text-[#ededed] shadow-xs"
 	>
 		<div class="flex h-10 items-center gap-2 border-b border-white/10 px-3 text-xs text-white/60">
-			<span class="flex gap-1.5" aria-hidden="true">
-				<span class="size-2.5 rounded-full bg-white/15"></span>
-				<span class="size-2.5 rounded-full bg-white/15"></span>
-				<span class="size-2.5 rounded-full bg-white/15"></span>
-			</span>
-			<span class="ml-2 font-mono">{server.name}</span>
+			<span class="font-mono">{server.name}</span>
 			<span class="ml-auto inline-flex items-center gap-1.5">
 				<span class={['size-1.5 rounded-full', running ? 'bg-success' : 'bg-white/30']}></span>
 				{running ? t('server.console.live') : t('server.console.offline')}
@@ -308,6 +325,12 @@
 				t('server.console.timestamps'),
 				() => (timestamps = !timestamps),
 				timestamps
+			)}
+			{@render iconButton(
+				PaletteIcon,
+				t('server.console.syntax'),
+				() => (syntax = !syntax),
+				syntax
 			)}
 			{@render iconButton(DownloadIcon, t('server.console.download'), download)}
 			{@render iconButton(EraserIcon, t('server.console.clear'), () => (lines = []))}
@@ -379,9 +402,10 @@
 			{#each shown as line (line.seq)}
 				<div class={['break-words whitespace-pre-wrap', STREAM_STYLE[line.stream]]}>
 					{#if timestamps}<span class="text-white/30">{clockOf(line)} </span>{/if}
-					{#each pieces(line.text, matcher) as piece, index (index)}
+					{#each pieces(line.text, matcher, syntax && line.stream === 'stdout') as piece, index (index)}
 						<span
 							class={[
+								piece.tone,
 								piece.bold && 'font-bold',
 								piece.italic && 'italic',
 								piece.underline && 'underline',

@@ -54,6 +54,8 @@ export interface Piece {
 	italic?: boolean;
 	underline?: boolean;
 	strike?: boolean;
+	/** A Tailwind class for the kind of thing this run is. */
+	tone?: string;
 	/** Part of what the search matched. */
 	hit?: boolean;
 }
@@ -67,7 +69,7 @@ export function plain(text: string) {
  * Splits a line into styled runs. Colour codes reset the styles that came
  * before, the way the game reads them, and `§r` clears everything.
  */
-export function pieces(text: string, matcher: RegExp | null): Piece[] {
+export function pieces(text: string, matcher: RegExp | null, syntax = false): Piece[] {
 	const runs: Piece[] = [];
 	let current: Piece = { text: '' };
 
@@ -96,7 +98,8 @@ export function pieces(text: string, matcher: RegExp | null): Piece[] {
 	}
 	push();
 
-	return matcher ? runs.flatMap((run) => split(run, matcher)) : runs;
+	const marked = syntax ? runs.flatMap(markup) : runs;
+	return matcher ? marked.flatMap((run) => split(run, matcher)) : marked;
 }
 
 /** Breaks one run apart wherever the search matched inside it. */
@@ -153,4 +156,63 @@ function escape(value: string) {
 /** The buffer as a plain text file, timestamps first. */
 export function asText(lines: ConsoleLine[]) {
 	return lines.map((line) => `[${new Date(line.at).toISOString()}] ${plain(line.text)}`).join('\n');
+}
+
+/**
+ * The shape of a log line, so the eye can skip past the parts that repeat on
+ * every line and land on the message. Only runs the game did not colour itself
+ * are marked up; a `§` colour always wins, since the server meant that one.
+ */
+const GRAMMAR = new RegExp(
+	[
+		// Java's clock, and Bedrock's whole date-and-level opening.
+		String.raw`(?<time>\[\d{1,2}:\d{2}:\d{2}(?:[.:]\d{1,3})?\])`,
+		String.raw`(?<stamp>\[\d{4}-\d{2}-\d{2}[^\]]{0,40}\])`,
+		// [Server thread/INFO], [main/WARN] and the like.
+		String.raw`(?<thread>\[[\w #.\-]{1,40}\/(?:FATAL|SEVERE|ERROR|WARN(?:ING)?|INFO|DEBUG|TRACE)\])`,
+		String.raw`(?<url>\bhttps?:\/\/\S+)`,
+		String.raw`(?<uuid>\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b)`,
+		String.raw`(?<address>\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b)`,
+		// <Notch> in chat, and the /command somebody ran.
+		String.raw`(?<speaker><[^<>\s]{1,32}>)`,
+		String.raw`(?<quoted>"[^"\n]{0,200}")`,
+		String.raw`(?<frame>\bat [\w$.]+\([^)\n]{0,120}\))`,
+		String.raw`(?<number>-?\b\d+(?:\.\d+)?\b)`
+	].join('|'),
+	'g'
+);
+
+/** Tailwind classes for each kind of token, against the console's own black. */
+export const TONES: Record<string, string> = {
+	time: 'text-white/30',
+	stamp: 'text-white/30',
+	thread: 'text-white/35',
+	url: 'text-[#8ab4f8] underline',
+	uuid: 'text-white/35',
+	address: 'text-[#c4a7f7]',
+	speaker: 'text-[#7cc4f5]',
+	quoted: 'text-[#9ad6a4]',
+	frame: 'text-white/35',
+	number: 'text-[#d8b070]'
+};
+
+/** Splits one uncoloured run into the parts the grammar recognises. */
+function markup(run: Piece): Piece[] {
+	if (run.colour) return [run];
+	const out: Piece[] = [];
+	let last = 0;
+
+	GRAMMAR.lastIndex = 0;
+	for (const match of run.text.matchAll(GRAMMAR)) {
+		if (match.index === undefined) continue;
+		const kind = Object.entries(match.groups ?? {}).find(([, held]) => held !== undefined)?.[0];
+		if (!kind) continue;
+		if (match.index > last) out.push({ ...run, text: run.text.slice(last, match.index) });
+		out.push({ ...run, text: match[0], tone: TONES[kind] });
+		last = match.index + match[0].length;
+	}
+
+	if (last === 0) return [run];
+	if (last < run.text.length) out.push({ ...run, text: run.text.slice(last) });
+	return out;
 }

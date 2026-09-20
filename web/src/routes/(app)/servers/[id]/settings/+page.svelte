@@ -104,8 +104,10 @@
 
 <svelte:head><title>{t('nav.tabs.settings')} · {server.name} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-4xl px-4 py-6 md:px-8">
-	<div class="flex flex-wrap items-end justify-between gap-4">
+<div class="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
+	<div
+		class="sticky top-12 z-9 -mx-4 flex flex-wrap items-end justify-between gap-4 bg-background/90 px-4 py-2 backdrop-blur md:-mx-8 md:px-8"
+	>
 		<div>
 			<h1 class="text-base font-semibold tracking-tight">{t('settings.title')}</h1>
 			<p class="mt-1 text-sm text-muted-foreground">{t('settings.description')}</p>
@@ -148,7 +150,7 @@
 			{#each groups as group (group.name)}
 				<section class="rounded-lg border bg-card p-6">
 					<h2 class="mb-4 text-sm font-medium">{group.name}</h2>
-					<div class="grid gap-4 sm:grid-cols-2">
+					<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 						{#each group.items as entry (entry.key)}
 							{@const invalid = !!fieldErrors[entry.key]}
 							<Field.Field data-invalid={invalid}>
