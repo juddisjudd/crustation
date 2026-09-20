@@ -180,26 +180,43 @@ async fn status(
 /// never again, and it is easily lost in a few hundred lines of world loading.
 /// This is the difference between "it does not work" and a reason.
 async fn notes(state: &AppState, id: Uuid) -> Vec<String> {
-    const WORTH_SAYING: [&str; 6] = [
+    const WORTH_SAYING: [&str; 7] = [
         "crustation",
         "script",
         "module",
         "@minecraft",
-        "pack stack",
         "scripting",
+        "was not found and was ignored",
+        "beta api",
     ];
+    // A Bedrock server lists every pack it loaded at startup, one line each. The
+    // only one that answers "is the add-on loaded" is the one naming it, and it
+    // is caught by "crustation" above, so the rest are dropped rather than
+    // filling a card in the sidebar with a stack nobody asked about.
+    const NOISE: [&str; 1] = ["pack stack - ["];
+
     let lines = state.supervisor.console(id, None).await;
-    let mut found: Vec<String> = lines
-        .iter()
-        .filter(|line| {
-            let lower = line.text.to_lowercase();
-            WORTH_SAYING.iter().any(|one| lower.contains(one))
-        })
-        .map(|line| line.text.clone())
-        .collect();
+    let mut found: Vec<String> = Vec::new();
+
+    for line in lines.iter() {
+        let lower = line.text.to_lowercase();
+        let worth = WORTH_SAYING.iter().any(|one| lower.contains(one));
+        let noise = NOISE
+            .iter()
+            .any(|one| lower.contains(one) && !lower.contains("crustation"));
+        if !worth || noise {
+            continue;
+        }
+        // A server that has been restarted says the same things again, and two
+        // copies of one complaint reads as two problems.
+        if !found.contains(&line.text) {
+            found.push(line.text.clone());
+        }
+    }
+
     // The last few are the ones from this start, which is the run being asked
     // about.
-    let from = found.len().saturating_sub(12);
+    let from = found.len().saturating_sub(8);
     found.drain(..from);
     found
 }

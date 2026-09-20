@@ -120,11 +120,19 @@
 
 		{#if bridge.notes.length}
 			<details class="rounded-md border bg-muted/30 text-xs" open={!bridge.connected}>
-				<summary class="cursor-pointer px-3 py-2 select-none">{t('addon.notes')}</summary>
-				<pre
-					class="overflow-x-auto px-3 pb-2 font-mono text-[11px] leading-5 whitespace-pre-wrap">{bridge.notes.join(
-						'\n'
-					)}</pre>
+				<summary class="cursor-pointer px-3 py-2 select-none">
+					{t('addon.notes')}
+					<span class="text-muted-foreground tabular-nums">({bridge.notes.length})</span>
+				</summary>
+				<!-- Console lines are long and this card sits in a narrow column, so
+				     they scroll in place rather than stretching it. -->
+				<ul class="max-h-48 space-y-1.5 overflow-y-auto px-3 pb-3">
+					{#each bridge.notes as note, index (index)}
+						<li class="font-mono text-[11px] leading-4 wrap-break-word text-muted-foreground">
+							{note}
+						</li>
+					{/each}
+				</ul>
 			</details>
 		{/if}
 
