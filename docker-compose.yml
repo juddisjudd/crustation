@@ -1,0 +1,24 @@
+services:
+  crustation:
+    image: ghcr.io/juddisjudd/crustation:latest
+    # Build locally instead with: docker compose build
+    build: .
+    container_name: crustation
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "25565:25565"
+      - "19132:19132/udp"
+      - "25500-25600:25500-25600"
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Etc/UTC
+      # Set these to choose the first administrator; otherwise a password is
+      # generated and written to config/first-login.txt.
+      # CRUSTATION_ADMIN_USERNAME: admin
+      # CRUSTATION_ADMIN_PASSWORD: change-me-please
+    volumes:
+      - ./data/config:/config
+      - ./data/servers:/servers
+      - ./data/backups:/backups

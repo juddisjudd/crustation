@@ -1,0 +1,10 @@
+target/
+.run/
+data/
+web/node_modules/
+web/.svelte-kit/
+web/build/
+.git/
+.github/
+docs/
+*.md
