@@ -18,7 +18,8 @@ Crab, Rust, shells. The name wrote itself.
 ## What works today
 
 - **Create a server** from Vanilla, Paper, Purpur, Fabric, NeoForge or Bedrock. Crustation
-  downloads it, accepts the EULA, sets the port and picks a Java version that suits it.
+  downloads it, accepts the EULA, sets the port and picks a Java version that suits it. Choose
+  the seed, world type, difficulty, game mode and slots while you are there.
 - **Import a server** you already have, from a zip, a folder on the host, or a download link.
 - **Start, stop, restart and kill**, with crash detection and restart on boot.
 - **A live console** you can type into. Commands go over RCON when a Java server has it set up.

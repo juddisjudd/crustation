@@ -28,6 +28,21 @@ export interface ArchiveRoot {
 	files: string[];
 }
 
+/** One server.properties key the panel knows how to present. */
+export type PropertyKind =
+	| { type: 'text' }
+	| { type: 'flag' }
+	| { type: 'number'; min: number; max: number }
+	| { type: 'choice'; options: string[] };
+
+export type KnownProperty = {
+	key: string;
+	label: string;
+	help: string;
+	group: string;
+	default: string;
+} & PropertyKind;
+
 export type CreateSource =
 	| { type: 'provider'; provider: string; version: string }
 	| { type: 'url'; kind: ServerKind; url: string; executable?: string }
@@ -50,6 +65,7 @@ export interface NewServer {
 	java_flags?: string;
 	autostart?: boolean;
 	agree_to_eula: boolean;
+	properties?: Record<string, string | number | boolean>;
 	source: CreateSource;
 }
 
@@ -77,6 +93,9 @@ export const listVersions = (provider: string) =>
 
 export const listJavaRuntimes = () =>
 	api.get<{ runtimes: JavaRuntime[] }>('/panel/java').then((result) => result.runtimes);
+
+export const listProperties = (kind: string) =>
+	api.get<KnownProperty[]>('/properties', { query: { kind } });
 
 export const createServer = (body: NewServer) => api.post<{ id: string }>('/servers', body);
 

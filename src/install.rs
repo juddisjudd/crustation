@@ -51,6 +51,8 @@ pub struct Job {
     pub max_memory_mb: i64,
     pub java_flags: String,
     pub agree_to_eula: bool,
+    /// Checked against the catalogue before it got here, in a stable order.
+    pub properties: Vec<(String, String)>,
 }
 
 /// What the install settled on, written back to the server row.
@@ -581,7 +583,8 @@ fn start_command(job: &Job, runtime: &Runtime, executable: &str, layout: &Layout
     parts.join(" ")
 }
 
-/// Accepts the EULA and points the server at the port it was created with.
+/// Accepts the EULA, applies the settings that were asked for, and points the
+/// server at the port it was created with.
 async fn configure(state: &AppState, job: &Job) -> Result<()> {
     if job.kind == "minecraft_java" && job.agree_to_eula {
         let eula = job.directory.join("eula.txt");
@@ -592,21 +595,25 @@ async fn configure(state: &AppState, job: &Job) -> Result<()> {
     }
 
     let path = properties::path_in(&job.directory);
-    match Properties::load_if_present(&path).await? {
-        Some(mut file) => {
-            file.set("server-port", &job.port.to_string());
-            if job.kind == "minecraft_bedrock" {
-                // Mojang's own default keeps IPv6 one port above IPv4.
-                file.set("server-portv6", &(job.port + 1).to_string());
-            }
-            file.save().await?;
-        }
-        None => {
-            // The server writes the rest of the defaults the first time it starts.
-            tokio::fs::write(&path, format!("server-port={}\n", job.port))
-                .await
-                .with_context(|| format!("writing {}", path.display()))?;
-        }
+    let mut file = match Properties::load_if_present(&path).await? {
+        Some(file) => file,
+        None => Properties::empty(&path),
+    };
+
+    for (key, value) in &job.properties {
+        file.set(key, value);
+    }
+    // The panel owns the port, so it is written last and wins either way.
+    file.set("server-port", &job.port.to_string());
+    if job.kind == "minecraft_bedrock" {
+        // Mojang's own default keeps IPv6 one port above IPv4.
+        file.set("server-portv6", &(job.port + 1).to_string());
+    }
+    file.save().await?;
+
+    if !job.properties.is_empty() {
+        let names: Vec<&str> = job.properties.iter().map(|(key, _)| key.as_str()).collect();
+        log(state, job.id, format!("Set {}.", names.join(", "))).await;
     }
     Ok(())
 }
@@ -807,6 +814,7 @@ mod tests {
             max_memory_mb: 4096,
             java_flags: java_flags.into(),
             agree_to_eula: true,
+            properties: Vec::new(),
         }
     }
 

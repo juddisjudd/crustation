@@ -23,11 +23,13 @@
 	import {
 		archiveRoots,
 		createServer,
+		listProperties,
 		listVersions,
 		uploadArchive,
 		type ArchiveRoot,
 		type CreateSource,
 		type InstallProgress,
+		type KnownProperty,
 		type NewServer,
 		type ProviderVersion
 	} from '$lib/api/create';
@@ -71,6 +73,12 @@
 	let eula = $state(false);
 	let advanced = $state(false);
 
+	let catalogue = $state.raw<KnownProperty[]>([]);
+	let catalogueFailed = $state(false);
+	// Only the settings the operator touched; the rest keep the server's defaults.
+	let settings = $state<Record<string, string>>({});
+	let showSettings = $state(false);
+
 	let submitting = $state(false);
 	let fieldErrors = $state.raw<Record<string, string>>({});
 
@@ -98,6 +106,26 @@
 		data.java.find((runtime) => runtime.path === javaBinary)?.version ??
 			t('create.details.javaAuto')
 	);
+
+	const groups = $derived.by(() => {
+		const out: { name: string; items: KnownProperty[] }[] = [];
+		for (const entry of catalogue) {
+			let group = out.find((candidate) => candidate.name === entry.group);
+			if (!group) out.push((group = { name: entry.group, items: [] }));
+			group.items.push(entry);
+		}
+		return out;
+	});
+
+	// `minecraft:large_biomes` reads better as `Large biomes`.
+	function optionLabel(value: string) {
+		return value
+			.replace(/^minecraft:/, '')
+			.replace(/[_-]/g, ' ')
+			.replace(/^./, (first) => first.toUpperCase());
+	}
+
+	const valueOf = (entry: KnownProperty) => settings[entry.key] ?? entry.default;
 
 	const ready = $derived.by(() => {
 		if (!name.trim() || !eula) return false;
@@ -127,6 +155,23 @@
 			})
 			.finally(() => {
 				if (providerId === wanted) versionsLoading = false;
+			});
+	});
+
+	$effect(() => {
+		const wanted = kind;
+		catalogueFailed = false;
+		listProperties(wanted)
+			.then((list) => {
+				if (kind !== wanted) return;
+				catalogue = list;
+				// Java keys mean nothing to Bedrock, so start over on a change.
+				settings = {};
+			})
+			.catch(() => {
+				if (kind !== wanted) return;
+				catalogue = [];
+				catalogueFailed = true;
 			});
 	});
 
@@ -201,6 +246,7 @@
 				body.java_binary = javaBinary || null;
 				body.java_flags = javaFlags.trim();
 			}
+			if (Object.keys(settings).length) body.properties = settings;
 
 			const created = await createServer(body);
 			createdId = created.id;
@@ -223,6 +269,8 @@
 		roots = [];
 		internalPath = '';
 		eula = false;
+		settings = {};
+		showSettings = false;
 	}
 </script>
 
@@ -573,6 +621,95 @@
 					</div>
 				{/if}
 			</section>
+
+			{#if catalogue.length || catalogueFailed}
+				<section class="space-y-4 rounded-lg border bg-card p-6">
+					<div class="space-y-1.5">
+						<h2 class="text-base font-semibold tracking-tight">{t('create.properties.title')}</h2>
+						<p class="text-sm text-muted-foreground">{t('create.properties.description')}</p>
+					</div>
+
+					{#if catalogueFailed}
+						<p class="text-sm text-destructive">{t('create.properties.failed')}</p>
+					{:else}
+						<Label class="font-normal text-muted-foreground">
+							<Checkbox bind:checked={showSettings} />
+							{t('create.properties.show')}
+						</Label>
+
+						{#if showSettings}
+							<div class="space-y-6 border-t pt-4">
+								{#each groups as group (group.name)}
+									<fieldset class="space-y-4">
+										<legend class="mb-3 text-sm font-medium">{group.name}</legend>
+										<div class="grid gap-4 sm:grid-cols-2">
+											{#each group.items as entry (entry.key)}
+												{@const invalid = !!fieldErrors[`properties.${entry.key}`]}
+												<Field.Field data-invalid={invalid}>
+													{#if entry.type === 'flag'}
+														<Label class="font-normal">
+															<Checkbox
+																checked={valueOf(entry) === 'true'}
+																onCheckedChange={(on) =>
+																	(settings[entry.key] = on ? 'true' : 'false')}
+															/>
+															{entry.label}
+														</Label>
+													{:else}
+														<Field.Label for={entry.key}>{entry.label}</Field.Label>
+													{/if}
+
+													{#if entry.type === 'choice'}
+														<Select.Root
+															type="single"
+															value={valueOf(entry)}
+															onValueChange={(picked) => (settings[entry.key] = picked)}
+														>
+															<Select.Trigger id={entry.key} class="w-full">
+																{optionLabel(valueOf(entry))}
+															</Select.Trigger>
+															<Select.Content>
+																{#each entry.options as option (option)}
+																	<Select.Item value={option} label={optionLabel(option)} />
+																{/each}
+															</Select.Content>
+														</Select.Root>
+													{:else if entry.type === 'number'}
+														<Input
+															id={entry.key}
+															type="number"
+															min={entry.min}
+															max={entry.max}
+															value={valueOf(entry)}
+															oninput={(event) => (settings[entry.key] = event.currentTarget.value)}
+															class="tabular-nums"
+														/>
+													{:else if entry.type === 'text'}
+														<Input
+															id={entry.key}
+															value={valueOf(entry)}
+															placeholder={entry.key === 'level-seed'
+																? t('create.properties.random')
+																: entry.default}
+															oninput={(event) => (settings[entry.key] = event.currentTarget.value)}
+														/>
+													{/if}
+
+													{#if invalid}
+														<Field.Error>{fieldErrors[`properties.${entry.key}`]}</Field.Error>
+													{:else if entry.help}
+														<Field.Description>{entry.help}</Field.Description>
+													{/if}
+												</Field.Field>
+											{/each}
+										</div>
+									</fieldset>
+								{/each}
+							</div>
+						{/if}
+					{/if}
+				</section>
+			{/if}
 
 			<section class="rounded-lg border bg-card p-6">
 				<Field.Field data-invalid={!!fieldErrors.agree_to_eula}>

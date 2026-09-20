@@ -27,6 +27,9 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 - New servers start on a JVM that suits them: the install reads what the version asks of Java and
   picks from the runtimes on the host, and runs it on the flags its project recommends, sized to
   the memory limit. The image carries Java 8, 11, 17, 21 and 25 to choose between.
+- The creation form offers the `server.properties` settings worth choosing up front: the seed and
+  world type, difficulty, game mode, slots, the allow list and the view distances. Java and
+  Bedrock each get their own keys, checked against a catalogue before anything is written.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
@@ -37,6 +40,8 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
    start; console parsing stays as the fallback.
 2. **server.properties editor.** A typed form with descriptions, validation, a diff before apply,
    and a badge on the keys that need a restart. Same file on Java and Bedrock, different keys.
+   The catalogue and the checking already exist, from the settings the creation form offers; this
+   is the rest of the keys, on a server that is already running.
 3. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
 4. **Backups.** Configs, runs with progress, retention, restore, download, excludes. Taken
    automatically before anything destructive: version changes, content installs, restores.

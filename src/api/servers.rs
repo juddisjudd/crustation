@@ -209,7 +209,44 @@ struct Create {
     autostart: bool,
     #[serde(default)]
     agree_to_eula: bool,
+    /// Entries from the server.properties catalogue for this kind of server.
+    #[serde(default)]
+    properties: std::collections::BTreeMap<String, Value>,
     source: SourceBody,
+}
+
+/// Turns the requested settings into checked pairs, refusing anything this kind
+/// of server does not offer. The order is stable so the file is written the same
+/// way every time.
+fn checked_properties(
+    kind: &str,
+    requested: std::collections::BTreeMap<String, Value>,
+) -> Result<Vec<(String, String)>, ApiError> {
+    let mut out = Vec::new();
+    for (key, value) in requested {
+        let field = format!("properties.{key}");
+        let Some(entry) = properties::known(kind, &key) else {
+            return Err(ApiError::field(
+                field,
+                "This kind of server does not have that setting.",
+            ));
+        };
+        let raw = match value {
+            Value::Bool(flag) => flag.to_string(),
+            Value::Number(number) => number.to_string(),
+            Value::String(text) => text,
+            _ => {
+                return Err(ApiError::field(
+                    field,
+                    "Send text, a number, or true and false.",
+                ));
+            }
+        };
+        let checked =
+            properties::check(entry, &raw).map_err(|message| ApiError::field(field, message))?;
+        out.push((key, checked));
+    }
+    Ok(out)
 }
 
 #[derive(Deserialize)]
@@ -341,6 +378,8 @@ async fn create(
         ));
     }
 
+    let settings = checked_properties(&kind, body.properties)?;
+
     let port = body.port.unwrap_or_else(|| default_port(&kind));
     if !(1..=65535).contains(&port) {
         return Err(ApiError::field("port", "Pick a port between 1 and 65535."));
@@ -407,6 +446,7 @@ async fn create(
             max_memory_mb,
             java_flags: body.java_flags,
             agree_to_eula: body.agree_to_eula,
+            properties: settings,
         },
     );
 

@@ -130,6 +130,7 @@ A server object is flat and honest about what is derived:
   "java_flags": "",
   "autostart": false,
   "agree_to_eula": true,
+  "properties": { "difficulty": "hard", "hardcore": true, "max-players": 40 },
   "source": { "type": "provider", "provider": "paper", "version": "1.21.11" }
 }
 ```
@@ -150,6 +151,10 @@ files are Java or Bedrock:
 - `java_flags` empty means the flags the project recommends for itself, which Paper publishes and
   the rest borrow, raised to Aikar's larger regions once the heap reaches 12 GB. Anything you send
   is used verbatim instead. Both the chosen runtime and the flags are written back to the server.
+- `properties` writes into `server.properties`. Only keys from the catalogue for that kind of
+  server are accepted, so it cannot reach `server-port`, `server-portv6` or the RCON keys, which
+  the panel owns. Values may be sent as strings, numbers or booleans. Keys left out keep whatever
+  the server itself defaults to.
 - `executable` is optional on an import; left out, the panel looks for `server.jar`, then the
   largest jar that is not an installer, or `bedrock_server` on Bedrock.
 - A `.zip` at a `url` is unpacked; anything else is kept as the server jar.
@@ -177,6 +182,28 @@ failed install leaves the server in place with an empty start command so the con
 | GET    | `/providers/{provider}/versions` | `[{id, label, stable}]`, newest first. `503 UNAVAILABLE` when the upstream service cannot be reached.          |
 
 Both require `CREATE_SERVER`. Version lists are fetched from upstream and held for ten minutes.
+
+## Server settings
+
+`GET /properties?kind=minecraft_java` returns the `server.properties` keys the panel knows how to
+present, for any signed-in caller. `404` for a kind it does not know.
+
+```json
+[
+  { "key": "difficulty", "label": "Difficulty", "help": "", "group": "World",
+    "default": "easy", "type": "choice", "options": ["peaceful", "easy", "normal", "hard"] },
+  { "key": "max-players", "label": "Player slots", "help": "", "group": "Players",
+    "default": "20", "type": "number", "min": 1, "max": 1000 },
+  { "key": "hardcore", "label": "Hardcore", "help": "…", "group": "World",
+    "default": "false", "type": "flag" }
+]
+```
+
+`type` is `text`, `flag`, `number` (with `min` and `max`) or `choice` (with `options`). `group` is
+a heading to lay the fields out under. Java and Bedrock name several of the same ideas
+differently, so the two lists overlap only in part: `motd` against `server-name`, `white-list`
+against `allow-list`. The keys that no longer exist in current Minecraft, such as `pvp` and
+`allow-nether`, are not offered.
 Mojang publishes only the current Bedrock server, so that provider lists the release and the
 preview; anything older has to arrive as a `url` or a `zip`.
 

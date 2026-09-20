@@ -56,6 +56,13 @@ export const create = {
 		advanced: 'Advanced',
 		autostart: 'Start this server when the panel starts'
 	},
+	properties: {
+		title: 'Server settings',
+		description: 'Written into server.properties. Everything else keeps its default.',
+		show: 'Change the world and player settings',
+		failed: 'Could not load the settings for this kind of server.',
+		random: 'Random'
+	},
 	eula: {
 		label: 'I accept the Minecraft end user licence agreement',
 		link: 'Read it'
