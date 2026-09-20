@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod bridge;
 mod config;
 mod db;
 mod error;
@@ -7,6 +8,7 @@ mod events;
 mod files;
 mod install;
 mod java;
+mod nbt;
 mod packs;
 mod perms;
 mod ping;
