@@ -38,3 +38,19 @@ export function rconStatus(serverId: string) {
 export function enableRcon(serverId: string) {
 	return api.post<{ port: number; restart_required: boolean }>(`/servers/${serverId}/rcon`, {});
 }
+
+export interface RecentPoint {
+	cpu: number;
+	memory_percent: number;
+}
+
+/** Recent history for every server the caller can see, keyed by server id. */
+export const recentStats = (minutes = 30, points = 32) =>
+	api.get<{ since: string; minutes: number; series: Record<string, (RecentPoint | null)[]> }>(
+		'/servers/stats',
+		{ query: { minutes, points } }
+	);
+
+/** Removes a server. It has to be stopped first, and the files are optional. */
+export const deleteServer = (serverId: string, deleteFiles: boolean) =>
+	api.delete(`/servers/${serverId}`, undefined, { query: { delete_files: deleteFiles } });

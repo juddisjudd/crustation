@@ -8,8 +8,10 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import Meter from '$lib/components/meter.svelte';
+	import Sparkline from '$lib/components/sparkline.svelte';
 	import StatusDot from '$lib/components/shell/status-dot.svelte';
 	import ServerActionsMenu from '$lib/components/servers/server-actions-menu.svelte';
+	import { recentStats } from '$lib/api/servers';
 	import { servers, statusLabel } from '$lib/servers.svelte';
 	import { session } from '$lib/session.svelte';
 	import { host } from '$lib/host.svelte';
@@ -23,9 +25,38 @@
 		servers.list.filter((server) => server.name.toLowerCase().includes(query.trim().toLowerCase()))
 	);
 
+	/** The last half hour of CPU per server, for the line on each card. */
+	let trends = $state.raw<Record<string, (number | null)[]>>({});
+
 	$effect(() => {
 		host.load().catch(() => {});
 		return host.listen();
+	});
+
+	$effect(() => {
+		let live = true;
+		const read = async () => {
+			try {
+				const found = await recentStats();
+				if (!live) return;
+				trends = Object.fromEntries(
+					Object.entries(found.series).map(([id, line]) => [
+						id,
+						line.map((point) => point?.cpu ?? null)
+					])
+				);
+			} catch {
+				// A card without a line is no worse than the card was before.
+			}
+		};
+		read();
+		// The sampler writes every ten seconds; re-reading the whole window this
+		// often is cheap and keeps the line moving without its own event.
+		const timer = setInterval(read, 30_000);
+		return () => {
+			live = false;
+			clearInterval(timer);
+		};
 	});
 </script>
 
@@ -97,23 +128,22 @@
 	{#if host.stats?.disks.length}
 		<section
 			aria-label={t('dashboard.storage')}
-			class="mt-4 grid gap-3 rounded-lg border p-4 sm:grid-cols-2"
+			class="mt-4 grid gap-4 rounded-lg border p-4 sm:grid-cols-2"
 		>
 			{#each host.stats.disks as disk (disk.mount)}
+				{@const keeps = disk.keeps.map((one) => t(`dashboard.keeps.${one}`)).join(' · ')}
 				<div class="space-y-2">
-					<div class="flex items-baseline justify-between gap-2 text-sm">
-						<span class="truncate font-mono text-xs">{disk.mount}</span>
-						<span class="text-xs text-muted-foreground tabular-nums">
-							{t('dashboard.memoryOf', {
-								used: bytes(disk.used_bytes),
+					<div class="flex items-baseline justify-between gap-2">
+						<span class="truncate text-sm font-medium">{keeps}</span>
+						<span class="shrink-0 text-xs text-muted-foreground tabular-nums">
+							{t('dashboard.freeOf', {
+								free: bytes(disk.free_bytes),
 								total: bytes(disk.total_bytes)
 							})}
 						</span>
 					</div>
-					<Meter
-						value={disk.used_percent}
-						label={t('dashboard.diskUsage', { mount: disk.mount })}
-					/>
+					<Meter value={disk.used_percent} label={t('dashboard.diskUsage', { mount: keeps })} />
+					<p class="truncate font-mono text-[11px] text-muted-foreground">{disk.mount}</p>
 				</div>
 			{/each}
 		</section>
@@ -208,6 +238,13 @@
 								</dd>
 							</div>
 						</dl>
+						{#if trends[server.id]?.some((one) => one !== null)}
+							<Sparkline
+								points={trends[server.id]}
+								label={t('dashboard.cpuTrend', { name: server.name })}
+								class="mt-3 h-6 w-full text-muted-foreground/70"
+							/>
+						{/if}
 					</li>
 				{/each}
 			</ul>

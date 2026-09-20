@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
@@ -6,7 +7,7 @@ use axum::{
     Json, Router,
     routing::{get, post},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -30,6 +31,7 @@ pub fn routes() -> Router<AppState> {
             post(upload).layer(DefaultBodyLimit::disable()),
         )
         .route("/import/{upload_id}/entries", get(entries))
+        .route("/stats", get(recent_stats))
         .route("/{id}", get(detail).patch(update).delete(remove))
         .route("/{id}/action", post(action))
         .route("/{id}/command", post(command))
@@ -212,6 +214,113 @@ async fn list(identity: Identity, State(state): State<AppState>) -> ApiResult<im
         out.push(server_json(&state, &row, names).await);
     }
     Ok(OkJson(out))
+}
+
+#[derive(Deserialize)]
+struct Recent {
+    /// How far back to look. Half an hour by default, a day at most.
+    minutes: Option<i64>,
+    /// How many points to come back with, so the line is drawn from a fixed
+    /// number of buckets whatever the sampling interval happens to be.
+    points: Option<usize>,
+}
+
+#[derive(sqlx::FromRow)]
+struct StatRow {
+    server_id: String,
+    at: String,
+    cpu_percent: f64,
+    memory_percent: f64,
+}
+
+/// Recent history for every server the caller can see, in one call, so the
+/// overview can draw a line on each card without asking per server.
+async fn recent_stats(
+    identity: Identity,
+    State(state): State<AppState>,
+    Query(query): Query<Recent>,
+) -> ApiResult<impl IntoResponse> {
+    let minutes = query.minutes.unwrap_or(30).clamp(1, 60 * 24);
+    let points = query.points.unwrap_or(32).clamp(4, 200);
+    let since = Utc::now() - chrono::Duration::minutes(minutes);
+
+    let visible = identity
+        .visible_servers(&state.db)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    let rows: Vec<StatRow> = sqlx::query_as(
+        "SELECT server_id, at, cpu_percent, memory_percent
+         FROM server_stats WHERE at >= ? ORDER BY at ASC",
+    )
+    .bind(since.to_rfc3339())
+    .fetch_all(&state.db)
+    .await?;
+
+    let keep = |id: &str| match &visible {
+        Some(allowed) => allowed.iter().any(|one| one == id),
+        None => true,
+    };
+    let rows = rows.into_iter().filter(|row| keep(&row.server_id));
+
+    Ok(OkJson(json!({
+        "since": since.to_rfc3339(),
+        "minutes": minutes,
+        "series": bucket(rows, since, minutes, points),
+    })))
+}
+
+/// Averages the samples into a fixed number of buckets, so a card always draws
+/// the same number of points whatever the sampler's interval is set to, and a
+/// long window is not a long payload.
+///
+/// A bucket nothing was sampled in comes back null rather than nought, so a
+/// stretch where the server was down reads as a gap in the line instead of a
+/// floor it never actually sat at.
+fn bucket(
+    rows: impl Iterator<Item = StatRow>,
+    since: DateTime<Utc>,
+    minutes: i64,
+    points: usize,
+) -> BTreeMap<String, Vec<Value>> {
+    let span = (minutes * 60) as f64 / points as f64;
+    let mut series: BTreeMap<String, Vec<(f64, f64, i64)>> = BTreeMap::new();
+
+    for row in rows {
+        let Ok(at) = DateTime::parse_from_rfc3339(&row.at) else {
+            continue;
+        };
+        let offset = (at.with_timezone(&Utc) - since).num_seconds();
+        if offset < 0 {
+            continue;
+        }
+        let at = ((offset as f64) / span) as usize;
+        let at = at.min(points - 1);
+
+        let line = series
+            .entry(row.server_id.clone())
+            .or_insert_with(|| vec![(0.0, 0.0, 0); points]);
+        line[at].0 += row.cpu_percent;
+        line[at].1 += row.memory_percent;
+        line[at].2 += 1;
+    }
+
+    series
+        .into_iter()
+        .map(|(id, line)| {
+            let line = line
+                .into_iter()
+                .map(|(cpu, memory, seen)| match seen {
+                    0 => Value::Null,
+                    seen => json!({
+                        "cpu": cpu / seen as f64,
+                        "memory_percent": memory / seen as f64,
+                    }),
+                })
+                .collect();
+            (id, line)
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -1056,4 +1165,80 @@ async fn console(
         .await?;
     let lines = state.supervisor.console(id, query.after).await;
     Ok(OkJson(json!({ "lines": lines })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(id: &str, seconds: i64, cpu: f64) -> StatRow {
+        StatRow {
+            server_id: id.to_string(),
+            at: (since() + chrono::Duration::seconds(seconds)).to_rfc3339(),
+            cpu_percent: cpu,
+            memory_percent: cpu * 2.0,
+        }
+    }
+
+    fn since() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .expect("fixed")
+            .with_timezone(&Utc)
+    }
+
+    /// Ten minutes into five buckets: two minutes each.
+    fn line(rows: Vec<StatRow>) -> Vec<Value> {
+        bucket(rows.into_iter(), since(), 10, 5)
+            .remove("a")
+            .expect("the one server")
+    }
+
+    #[test]
+    fn samples_land_in_the_bucket_their_time_falls_in() {
+        let found = line(vec![
+            sample("a", 0, 10.0),
+            sample("a", 60, 20.0),
+            sample("a", 480, 50.0),
+        ]);
+        assert_eq!(found[0]["cpu"], 15.0, "the first two minutes averaged");
+        assert_eq!(found[4]["cpu"], 50.0, "eight minutes in is the last bucket");
+    }
+
+    #[test]
+    fn a_stretch_with_no_samples_is_a_gap_not_a_floor() {
+        let found = line(vec![sample("a", 0, 10.0)]);
+        assert_eq!(found[0]["cpu"], 10.0);
+        for (at, value) in found.iter().enumerate().skip(1) {
+            assert!(value.is_null(), "bucket {at} had nothing in it");
+        }
+    }
+
+    #[test]
+    fn every_line_is_the_length_that_was_asked_for() {
+        assert_eq!(line(vec![sample("a", 30, 1.0)]).len(), 5);
+    }
+
+    #[test]
+    fn a_sample_on_the_far_edge_does_not_run_off_the_end() {
+        // Exactly the window, which divides into a bucket that is not there.
+        let found = line(vec![sample("a", 600, 99.0)]);
+        assert_eq!(found[4]["cpu"], 99.0);
+    }
+
+    #[test]
+    fn a_sample_from_before_the_window_is_left_out() {
+        assert!(bucket(vec![sample("a", -60, 5.0)].into_iter(), since(), 10, 5).is_empty());
+    }
+
+    #[test]
+    fn each_server_gets_its_own_line() {
+        let found = bucket(
+            vec![sample("a", 0, 10.0), sample("b", 0, 20.0)].into_iter(),
+            since(),
+            10,
+            5,
+        );
+        assert_eq!(found["a"][0]["cpu"], 10.0);
+        assert_eq!(found["b"][0]["cpu"], 20.0);
+    }
 }

@@ -15,7 +15,14 @@ export const dashboard = {
 	stoppedCount: '{count} stopped',
 	slotsOf: 'of {max} slots',
 	acrossRunning: 'Across running servers',
-	diskUsage: 'Disk {mount} usage',
+	diskUsage: '{mount} storage usage',
+	freeOf: '{free} free of {total}',
+	cpuTrend: 'Recent CPU for {name}',
+	keeps: {
+		servers: 'Servers',
+		backups: 'Backups',
+		config: 'Panel data'
+	},
 	searchServers: 'Search servers…',
 	emptyTitle: 'No servers yet',
 	emptyBody: 'Server creation is not built yet. The roadmap has it next.',

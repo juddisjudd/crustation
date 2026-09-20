@@ -94,6 +94,8 @@ export interface HostStats {
 	memory: { total_bytes: number; used_bytes: number; used_percent: number };
 	disks: {
 		mount: string;
+		/** Which of the panel's folders live on this filesystem. */
+		keeps: ('servers' | 'backups' | 'config')[];
 		filesystem: string;
 		total_bytes: number;
 		used_bytes: number;
