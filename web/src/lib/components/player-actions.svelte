@@ -59,6 +59,10 @@
 	let y = $state('64');
 	let z = $state('0');
 
+	// Bedrock keys its operator list by Xbox id and only the running server can
+	// look one up, so these have to go through the game rather than the file.
+	const needsTheGame = $derived(edition === 'bedrock' && !running);
+
 	const ranks = $derived(
 		edition === 'bedrock' ? ['visitor', 'member', 'operator'] : ['1', '2', '3', '4']
 	);
@@ -111,6 +115,7 @@
 		{#if canManage}
 			{#if operator}
 				<DropdownMenu.Item
+					disabled={needsTheGame}
 					onSelect={() =>
 						run({ action: 'deop', player }, t('players.act.deopped', { name: player }))}
 				>
@@ -119,6 +124,7 @@
 				</DropdownMenu.Item>
 			{:else}
 				<DropdownMenu.Item
+					disabled={needsTheGame}
 					onSelect={() => run({ action: 'op', player }, t('players.act.opped', { name: player }))}
 				>
 					<ShieldIcon />
@@ -127,7 +133,9 @@
 			{/if}
 
 			<DropdownMenu.Sub>
-				<DropdownMenu.SubTrigger>{t('players.act.rank')}</DropdownMenu.SubTrigger>
+				<DropdownMenu.SubTrigger disabled={needsTheGame}>
+					{t('players.act.rank')}
+				</DropdownMenu.SubTrigger>
 				<DropdownMenu.SubContent>
 					{#each ranks as rank (rank)}
 						<DropdownMenu.Item

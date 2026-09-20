@@ -283,6 +283,7 @@ async fn push_entry(
     reason: Option<String>,
     level: Option<i64>,
 ) -> Result<(), ApiError> {
+    keyed_right(wanted, value)?;
     let mut rows = load_list(directory, wanted.file).await?;
     if rows
         .iter()
@@ -705,6 +706,23 @@ enum Offline {
     Ban(Option<String>),
 }
 
+/// Bedrock keys its permissions by Xbox id, and only the server can turn a
+/// gamertag into one. Writing a name there makes a row the game will ignore, so
+/// say what to do instead rather than writing rubbish.
+fn keyed_right(wanted: &Kind, value: &str) -> Result<(), ApiError> {
+    if wanted.key != "xuid" {
+        return Ok(());
+    }
+    if value.len() >= 10 && value.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(());
+    }
+    Err(ApiError::conflict(format!(
+        "{} is keyed by Xbox id, which only the server can look up. \
+         Start the server and do it in game, or add the Xbox id on the lists tab.",
+        wanted.file
+    )))
+}
+
 async fn apply_offline(
     state: &AppState,
     actor: &str,
@@ -810,4 +828,31 @@ async fn rank_in_file(
 
     save_list(directory, wanted.file, &rows).await?;
     Ok(format!("set {field} in {}", wanted.file))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bedrock_operators() -> Kind {
+        find("minecraft_bedrock", "operators").expect("Bedrock keeps an operator list")
+    }
+
+    #[test]
+    fn a_bedrock_operator_row_needs_an_xbox_id() {
+        assert!(keyed_right(&bedrock_operators(), "Alex").is_err());
+        assert!(keyed_right(&bedrock_operators(), "2535000000000001").is_ok());
+    }
+
+    #[test]
+    fn a_java_list_takes_the_name_as_typed() {
+        let ops = find("minecraft_java", "operators").expect("Java keeps an operator list");
+        assert!(keyed_right(&ops, "Notch").is_ok());
+    }
+
+    #[test]
+    fn an_address_list_is_not_checked_for_xbox_ids() {
+        let ips = find("minecraft_java", "banned-ips").expect("Java keeps a banned-ips list");
+        assert!(keyed_right(&ips, "192.168.1.44").is_ok());
+    }
 }
