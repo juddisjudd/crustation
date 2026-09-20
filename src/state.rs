@@ -68,12 +68,11 @@ fn http_client() -> Result<reqwest::Client> {
 
 async fn load_or_create_secret(db: &Db) -> Result<Vec<u8>> {
     use base64::Engine as _;
-    if let Some(value) = crate::db::setting(db, "session_secret").await? {
-        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&value) {
-            if bytes.len() >= 32 {
-                return Ok(bytes);
-            }
-        }
+    if let Some(value) = crate::db::setting(db, "session_secret").await?
+        && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&value)
+        && bytes.len() >= 32
+    {
+        return Ok(bytes);
     }
     let mut bytes = vec![0u8; 48];
     rand::fill(&mut bytes[..]);

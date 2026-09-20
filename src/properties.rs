@@ -77,11 +77,11 @@ impl Properties {
     pub fn set(&mut self, key: &str, value: &str) {
         let escaped = escape(value);
         for line in &mut self.lines {
-            if let Line::Entry { key: found, value } = line {
-                if found == key {
-                    *value = escaped;
-                    return;
-                }
+            if let Line::Entry { key: found, value } = line
+                && found == key
+            {
+                *value = escaped;
+                return;
             }
         }
         self.lines.push(Line::Entry {

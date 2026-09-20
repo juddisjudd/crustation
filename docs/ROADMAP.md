@@ -93,6 +93,20 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   sends: commands already reach a Bedrock server on its standard input.
 - Xbox ids are learned from the console. Bedrock names one when somebody connects and at no
   other time, so the panel writes it down, and can then key permissions.json properly.
+- Add-ons and worlds have their own tab and their own buttons. **Install add-on** takes a
+  .mcaddon or .mcpack straight from a file dialog, unpacks it into `behavior_packs` or
+  `resource_packs` and writes it into that world's `world_behavior_packs.json` or
+  `world_resource_packs.json`; where a server keeps more than one world it asks which first.
+  **Import world** takes a .mcworld and puts it under `worlds/` under the name the world gives
+  itself, without changing what the server is playing, and the list of worlds below has a button
+  for that when you mean it. Neither file ever lands in the server folder: it is unpacked from a
+  scratch folder outside and deleted either way. Installing from the file browser still works for
+  a file already there.
+- An MCP server at `/mcp`, so an assistant can look at a server rather than be told about it:
+  twelve tools covering the list, the console, commands, players, `server.properties`, the files
+  and the add-ons, plus the same ground as resources. It is the panel's own permissions
+  throughout — the key is an API key, a session cookie is refused, and every call goes through
+  the check the REST route would have made. Writes land in the audit log marked as MCP.
 
 ## Next
 

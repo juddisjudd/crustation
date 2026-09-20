@@ -54,6 +54,9 @@ pub struct PanelConfig {
     pub console_backlog: usize,
     pub stats_interval_seconds: u64,
     pub stats_retention_days: i64,
+    /// Whether the Model Context Protocol endpoint is served at /mcp. It takes
+    /// an API key and nothing else, so it reaches exactly as far as that key.
+    pub mcp_enabled: bool,
 }
 
 impl Default for PanelConfig {
@@ -65,6 +68,7 @@ impl Default for PanelConfig {
             console_backlog: 500,
             stats_interval_seconds: 10,
             stats_retention_days: 30,
+            mcp_enabled: true,
         }
     }
 }
@@ -116,6 +120,9 @@ impl Config {
         }
         if let Ok(value) = std::env::var("CRUSTATION_PUBLIC_URL") {
             self.http.public_url = Some(value);
+        }
+        if let Ok(value) = std::env::var("CRUSTATION_MCP_ENABLED") {
+            self.panel.mcp_enabled = matches!(value.trim(), "1" | "true" | "yes" | "on");
         }
         if let Ok(value) = std::env::var("CRUSTATION_SERVERS_DIR") {
             self.paths.servers = PathBuf::from(value);

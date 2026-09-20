@@ -167,10 +167,10 @@ fn chat_to_text(value: &Value) -> String {
                 out.push_str(&chat_to_text(extra));
             }
             // Pre-1.13 servers put the whole thing here.
-            if out.is_empty() {
-                if let Some(Value::String(text)) = map.get("translate") {
-                    out.push_str(text);
-                }
+            if out.is_empty()
+                && let Some(Value::String(text)) = map.get("translate")
+            {
+                out.push_str(text);
             }
             out
         }

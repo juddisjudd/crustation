@@ -245,16 +245,19 @@ impl FromRequestParts<AppState> for Identity {
             .ok_or(ApiError::Unauthenticated)?;
 
         // Password changes and "sign out everywhere" invalidate older sessions.
-        if let Ok(valid_from) = DateTime::parse_from_rfc3339(&identity.user.sessions_valid_from) {
-            if issued_at < valid_from.with_timezone(&Utc) {
-                return Err(ApiError::Unauthenticated);
-            }
+        if let Ok(valid_from) = DateTime::parse_from_rfc3339(&identity.user.sessions_valid_from)
+            && issued_at < valid_from.with_timezone(&Utc)
+        {
+            return Err(ApiError::Unauthenticated);
         }
         Ok(identity)
     }
 }
 
-async fn identity_from_api_key(state: &AppState, token: &str) -> Result<Identity, ApiError> {
+pub(crate) async fn identity_from_api_key(
+    state: &AppState,
+    token: &str,
+) -> Result<Identity, ApiError> {
     let hash = sha256_hex(token);
     let row: Option<(String, String, String)> =
         sqlx::query_as("SELECT id, user_id, global_permissions FROM api_keys WHERE token_hash = ?")

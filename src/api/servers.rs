@@ -199,10 +199,10 @@ async fn list(identity: Identity, State(state): State<AppState>) -> ApiResult<im
 
     let mut out = Vec::new();
     for row in rows {
-        if let Some(allowed) = &visible {
-            if !allowed.contains(&row.id) {
-                continue;
-            }
+        if let Some(allowed) = &visible
+            && !allowed.contains(&row.id)
+        {
+            continue;
         }
         let granted = identity
             .server_permissions(&state.db, row.uuid())
@@ -693,18 +693,18 @@ async fn update(
         .await?;
     let row = load(&state, id).await?;
 
-    if let Some(name) = &body.name {
-        if name.trim().is_empty() {
-            return Err(ApiError::field("name", "Give the server a name."));
-        }
+    if let Some(name) = &body.name
+        && name.trim().is_empty()
+    {
+        return Err(ApiError::field("name", "Give the server a name."));
     }
-    if let (Some(min), Some(max)) = (body.min_memory_mb, body.max_memory_mb) {
-        if min > max {
-            return Err(ApiError::field(
-                "min_memory_mb",
-                "Minimum memory cannot exceed the maximum.",
-            ));
-        }
+    if let (Some(min), Some(max)) = (body.min_memory_mb, body.max_memory_mb)
+        && min > max
+    {
+        return Err(ApiError::field(
+            "min_memory_mb",
+            "Minimum memory cannot exceed the maximum.",
+        ));
     }
     // Only an admin may change how the process is launched.
     if (body.command.is_some() || body.java_binary.is_some()) && !identity.is_admin() {
@@ -807,10 +807,10 @@ async fn remove(
 
     if query.delete_files {
         let directory = std::path::PathBuf::from(&row.directory);
-        if directory.starts_with(&state.config.paths.servers) {
-            if let Err(error) = tokio::fs::remove_dir_all(&directory).await {
-                tracing::warn!(%error, path = %directory.display(), "could not remove server files");
-            }
+        if directory.starts_with(&state.config.paths.servers)
+            && let Err(error) = tokio::fs::remove_dir_all(&directory).await
+        {
+            tracing::warn!(%error, path = %directory.display(), "could not remove server files");
         }
     }
 
@@ -934,10 +934,11 @@ async fn rcon_status(
     // Proving it works needs an actual connection, which only exists while the
     // server is up.
     let mut reachable = false;
-    if configured && state.supervisor.state(id).await.is_live() {
-        if let Ok(Some(endpoint)) = crate::rcon::endpoint(&directory).await {
-            reachable = crate::rcon::check(&endpoint).await.is_ok();
-        }
+    if configured
+        && state.supervisor.state(id).await.is_live()
+        && let Ok(Some(endpoint)) = crate::rcon::endpoint(&directory).await
+    {
+        reachable = crate::rcon::check(&endpoint).await.is_ok();
     }
 
     Ok(OkJson(json!({

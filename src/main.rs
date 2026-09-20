@@ -8,6 +8,7 @@ mod events;
 mod files;
 mod install;
 mod java;
+mod mcp;
 mod nbt;
 mod packs;
 mod perms;

@@ -24,9 +24,15 @@ pub fn router(state: AppState) -> Router {
         .precompressed_gzip()
         .fallback(ServeFile::new(index));
 
-    Router::new()
+    let mut router = Router::new()
         .nest("/api/v1", crate::api::router())
-        .route("/ws", get(crate::api::ws::handler))
+        .route("/ws", get(crate::api::ws::handler));
+
+    if state.config.panel.mcp_enabled {
+        router = router.nest("/mcp", crate::mcp::service(state.clone()));
+    }
+
+    router
         .fallback_service(spa)
         .method_not_allowed_fallback(not_found)
         .layer(TraceLayer::new_for_http())

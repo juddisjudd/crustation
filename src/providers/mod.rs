@@ -142,10 +142,10 @@ const TTL: Duration = Duration::from_secs(600);
 
 impl Catalogue {
     pub async fn versions(&self, http: &reqwest::Client, provider: &str) -> Result<Vec<Version>> {
-        if let Some(cached) = self.entries.lock().await.get(provider) {
-            if cached.at.elapsed() < TTL {
-                return Ok(cached.versions.clone());
-            }
+        if let Some(cached) = self.entries.lock().await.get(provider)
+            && cached.at.elapsed() < TTL
+        {
+            return Ok(cached.versions.clone());
         }
 
         let mut versions = match provider {

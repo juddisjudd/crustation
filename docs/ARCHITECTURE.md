@@ -8,7 +8,7 @@ records what Crafty Controller does, as a feature checklist only.
 
 ```
 crustation (single binary)
-├── http          axum: REST under /api/v1, WebSocket at /ws, SPA from the embedded web build
+├── http          axum: REST under /api/v1, WebSocket at /ws, MCP at /mcp, SPA from the web build
 ├── auth          argon2 password hashes, signed session cookie, API keys, roles and permissions
 ├── store         SQLite via sqlx, migrations in /migrations
 ├── supervisor    one task per game server: spawn, stdin, stdout ring buffer, crash detection
@@ -16,7 +16,8 @@ crustation (single binary)
 ├── scheduler     cron and interval jobs: start, stop, restart, backup, command
 ├── backups       zip archives with excludes, retention, restore
 ├── providers     server downloads: Vanilla, Paper, Purpur, Fabric, NeoForge, Bedrock
-└── events        broadcast bus that fans out to WebSocket subscribers
+├── events        broadcast bus that fans out to WebSocket subscribers
+└── mcp           the same data as tools and resources, for an assistant, behind an API key
 ```
 
 Everything runs in one process. Game servers are child processes, not containers: the panel owns
@@ -47,6 +48,11 @@ their stdin/stdout, which keeps the console honest and the deployment a single c
 - **Events.** A `tokio::sync::broadcast` bus carries typed events. WebSocket connections subscribe
   to topics and receive only what they are allowed to see; permission is checked per event, not
   only at subscribe time.
+- **MCP.** `/mcp` serves the panel over the Model Context Protocol, through `rmcp`. It adds no
+  data and no privileges: a middleware turns the bearer API key into an `Identity` and puts it in
+  the request extensions, the tools read it back out, and from there the calls go through the same
+  `require_server` checks every REST handler uses. Cookies are refused there on purpose, since the
+  endpoint is reachable cross-site and a browser would send one unasked.
 
 ## Data
 

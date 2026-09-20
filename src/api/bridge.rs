@@ -366,17 +366,14 @@ fn lay_it_down(
     // The world has to load the pack, and the pack needs the experiment on, or
     // the script module is never given @minecraft/server-net at all.
     let list = world.join("world_behavior_packs.json");
-    let mut rows: Vec<serde_json::Value> = std::fs::read_to_string(&list)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
+    let mut rows = crate::packs::read_world_list(&list)?;
     if !rows
         .iter()
         .any(|row| row.get("pack_id").and_then(serde_json::Value::as_str) == Some(PACK_UUID))
     {
         rows.push(serde_json::json!({ "pack_id": PACK_UUID, "version": [1, 0, 0] }));
     }
-    write_json(&list, &serde_json::Value::Array(rows))?;
+    crate::packs::write_world_list(&list, &rows)?;
 
     let level_dat = world.join("level.dat");
     if let Ok(bytes) = std::fs::read(&level_dat) {

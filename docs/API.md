@@ -309,7 +309,10 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | GET              | `/servers/{id}/files/download?path=`                     | Streams the file, or a zip of a folder.                                                                                                                                                                                                                  |
 | POST             | `/servers/{id}/files/extract`                            | `{path}` to unzip in place.                                                                                                                                                                                                                              |
 | GET              | `/servers/{id}/packs`                                    | What is installed: `{packs: [{name, sort, path, uuid, version, activated}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
-| POST             | `/servers/{id}/packs`                                    | `{path, activate}` installs an add-on already in the server folder. Returns `{installed, restart_required}`. Requires `FILES`. |
+| POST             | `/servers/{id}/packs`                                    | `{path, activate, world, use_world}` installs an add-on already in the server folder. Returns `{installed, world, level_name, restart_required}`. Requires `FILES`. |
+| POST             | `/servers/{id}/packs/upload?name=&activate=&world=&use_world=` | The archive itself as the body, unpacked without ever landing in the server folder. Same reply. Requires `FILES`. |
+| GET              | `/servers/{id}/worlds`                                   | `{worlds: [{name, folder, path}], level_name}`. A world is a folder holding a `level.dat`. Requires `FILES`. |
+| PUT              | `/servers/{id}/worlds`                                   | `{folder}` points `level-name` at a world the server already keeps. Requires `FILES`. |
 | GET/POST/DELETE  | `/servers/{id}/bridge`                                   | The Crustation add-on on a Bedrock server. `GET` needs `CONSOLE`, the rest `CONFIG`. Java answers `409 CONFLICT`: it has RCON. |
 | GET/POST         | `/servers/{id}/macros`                                   | Saved commands as buttons: `{id, label, command, position}`. Reading needs `COMMANDS`, changing needs `CONFIG`.                                                                                                                                          |
 | PATCH/DELETE     | `/servers/{id}/macros/{macro_id}`                        | One saved command.                                                                                                                                                                                                                                       |
@@ -333,7 +336,13 @@ nested inside it, and both shapes are handled.
   the folder is replaced rather than merged, so an update leaves nothing of the old one behind.
 - `activate` also writes the pack into `worlds/<level-name>/world_behavior_packs.json` or
   `world_resource_packs.json`, because Bedrock ignores a pack that is only sitting in the folder.
-  Installing the same pack again updates its row rather than adding a second one.
+  The list is **added to, never replaced**: the file is read, the new pack appended, and every
+  pack already named there kept. Installing the same pack again updates its row in place rather
+  than adding a second one.
+- If that file exists but cannot be read as a list, the panel refuses to touch it rather than
+  writing a fresh one over the top, which would switch off every pack the world already loads.
+  The pack's own files still land, and it comes back `activated: false` so the interface can say
+  the world was not told about it.
 - On Java the same endpoint takes a datapack: a zip with a `pack.mcmeta`, unpacked into
   `<level-name>/datapacks/`.
 - A `header.name` of `pack.something` is a key looked up in the language file the pack carries,
@@ -341,6 +350,23 @@ nested inside it, and both shapes are handled.
 - An archive with nothing the panel recognises answers `409 CONFLICT` rather than scattering
   files about.
 - It always takes effect on the next start, so the reply says `restart_required`.
+
+Two ways in, one set of rules. `POST /servers/{id}/packs` reads a file already in the server
+folder, which is how the file browser installs one. `POST /servers/{id}/packs/upload` takes the
+archive as the request body, which is how the **Install add-on** and **Import world** buttons
+work: the file goes to a scratch folder outside every server, is unpacked from there, and is
+deleted whether or not it worked, so a half-arrived upload is never something the browser can
+show. `name` carries the original filename, since the extension is what says how to read it.
+
+- `world` names which world the packs are switched on for, rather than always the one
+  `level-name` points at. It has to be a folder the server actually keeps — it is joined onto a
+  path, so an unknown one answers `422` rather than being written anywhere.
+- `use_world` decides whether an imported world becomes the one the server plays. It follows
+  `activate` when it is not given, which is what the file browser has always done. The buttons
+  send `false`, so importing a world puts it in place without changing what is running, and
+  `PUT /servers/{id}/worlds` switches when you mean to.
+- The reply's `world` says which world the packs were switched on for, and `level_name` is set
+  only when the server was pointed at a world that just arrived.
 
 Every file endpoint needs `FILES`. Paths are relative to the server's own folder and are checked
 twice: once as text, throwing out `..` and anything anchored elsewhere, and again after resolving
@@ -424,6 +450,55 @@ a password or disabling an account moves `sessions_valid_from`, ending every ses
 An API key's token appears exactly once, in the reply that creates it.
 
 Anyone may read their own user record and manage their own keys without `MANAGE_USERS`.
+
+## Model Context Protocol
+
+The panel is also an MCP server, at `/mcp`, speaking Streamable HTTP. It is the same binary and
+the same data; what it adds is a shape an assistant can use, so one can read a server's console
+and act on it rather than be told about it second hand.
+
+```
+claude mcp add --transport http crustation https://panel.example.com/mcp \
+  --header "Authorization: Bearer <api key>"
+```
+
+- **Authentication is an API key and nothing else.** A session cookie is refused here on
+  purpose: a browser sends its cookie to any origin that asks, and this endpoint is reachable
+  cross-site. Without a bearer token the answer is `401` with `WWW-Authenticate: Bearer`.
+- Every call runs as that key's owner and goes through the same permission checks the REST API
+  uses, so an MCP client reaches exactly as far as the key already could, and no further. A
+  refusal comes back as an error the model can read, naming the permission it wanted.
+- The writes — `server_action`, `send_command`, `set_property` — are recorded in the audit log
+  like any other, marked as having come over MCP.
+- Sessions are not kept. Each request stands alone, which is what the `2026-07-28` revision of
+  the protocol expects.
+- It can be switched off with `panel.mcp_enabled = false` in `crustation.toml`, or
+  `CRUSTATION_MCP_ENABLED=false`.
+
+| Tool              | Takes                       | Needs      |
+| ----------------- | --------------------------- | ---------- |
+| `list_servers`    | —                           | —          |
+| `server_details`  | `server`                    | `LOGS`     |
+| `server_action`   | `server`, `action`          | `COMMANDS` |
+| `send_command`    | `server`, `command`         | `COMMANDS` |
+| `read_console`    | `server`, `lines?`          | `CONSOLE`  |
+| `list_players`    | `server`                    | `PLAYERS`  |
+| `read_properties` | `server`                    | `CONFIG`   |
+| `set_property`    | `server`, `key`, `value`    | `CONFIG`   |
+| `list_files`      | `server`, `path?`           | `FILES`    |
+| `read_file`       | `server`, `path`            | `FILES`    |
+| `list_packs`      | `server`                    | `FILES`    |
+| `panel_overview`  | —                           | —          |
+
+`server` is a server's id or its name, because a name is what an assistant has to hand.
+`read_file` refuses anything binary or over 256 KB rather than guessing at it, and every path is
+checked the same way the file API checks one. `set_property` runs the value past the catalogue
+for that edition and refuses the keys the panel writes itself.
+
+Resources cover the same ground for a client that would rather attach state than call a tool:
+`crustation://servers` is the list, and `crustation://servers/{id}/details`,
+`…/console` and `…/properties` are the per-server ones, listed for every server the key can see
+and declared as templates as well.
 
 ## WebSocket
 

@@ -28,6 +28,7 @@ export const nav = {
 		files: 'Files',
 		chat: 'Chat',
 		map: 'Map',
-		players: 'Players'
+		players: 'Players',
+		content: 'Add-ons'
 	}
 } as const;

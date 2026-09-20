@@ -435,11 +435,7 @@ fn switch_on(server: &Path, level: &str, manifest: &Manifest) -> Result<()> {
         bail!("there is no world at {} yet", world.display());
     }
     let path = world.join(file);
-
-    let mut rows: Vec<serde_json::Value> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
+    let mut rows = read_world_list(&path)?;
 
     let version = serde_json::json!(manifest.version);
     let already = rows.iter_mut().find(|row| {
@@ -453,10 +449,43 @@ fn switch_on(server: &Path, level: &str, manifest: &Manifest) -> Result<()> {
         })),
     }
 
-    let text = serde_json::to_string_pretty(&rows)?;
+    write_world_list(&path, &rows)
+}
+
+/// Reads one of a world's pack lists so a new pack can be added to it.
+///
+/// A file that is not there is an empty list, which is what a fresh world has.
+/// A file that is there but cannot be read as a list is an error, because the
+/// only other thing to do with it is write an empty list over the top, and that
+/// would silently switch off every pack the world already loads.
+pub fn read_world_list(path: &Path) -> Result<Vec<serde_json::Value>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("reading {}", path.display()));
+        }
+    };
+    // A world the game has never loaded can leave the file empty.
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(&text).with_context(|| {
+        format!(
+            "{} is not a list this panel can add to. Fix or remove it, then install again; \
+             nothing was changed.",
+            path.display()
+        )
+    })
+}
+
+/// Writes a pack list beside the old one and renames over it, so a world is
+/// never left reading a half-written file.
+pub fn write_world_list(path: &Path, rows: &[serde_json::Value]) -> Result<()> {
+    let text = serde_json::to_string_pretty(rows)?;
     let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, &path)?;
+    std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
+    std::fs::rename(&temporary, path).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -502,6 +531,55 @@ pub fn installed(server: &Path, level: &str, bedrock: bool) -> Vec<Installed> {
             });
         }
     }
+
+    out.sort_by_key(|one| one.name.to_lowercase());
+    out
+}
+
+/// One world on the server, as the picker offers it.
+#[derive(Debug, Clone, Serialize)]
+pub struct World {
+    /// What the world calls itself, which is what the player looks for.
+    pub name: String,
+    /// The folder, which is what `level-name` and the pack lists key on.
+    pub folder: String,
+    /// Where it sits, relative to the server folder.
+    pub path: String,
+}
+
+/// Every world the server keeps. Bedrock gathers them under `worlds/`; Java
+/// keeps each beside the jar, so the top level is what is read there. A world is
+/// a folder holding a `level.dat`, which is the only thing both editions agree
+/// on.
+pub fn worlds(server: &Path, bedrock: bool) -> Vec<World> {
+    let root = match bedrock {
+        true => server.join("worlds"),
+        false => server.to_path_buf(),
+    };
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+
+    let mut out: Vec<World> = entries
+        .flatten()
+        .filter(|entry| entry.path().join("level.dat").is_file())
+        .map(|entry| {
+            let folder = entry.file_name().to_string_lossy().to_string();
+            let named = std::fs::read_to_string(entry.path().join("levelname.txt"))
+                .ok()
+                .map(|text| text.trim().to_string())
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| folder.clone());
+            World {
+                name: named,
+                path: match bedrock {
+                    true => relative(PathBuf::from("worlds").join(&folder)),
+                    false => folder.clone(),
+                },
+                folder,
+            }
+        })
+        .collect();
 
     out.sort_by_key(|one| one.name.to_lowercase());
     out
@@ -596,6 +674,165 @@ mod tests {
     #[test]
     fn a_world_goes_under_worlds_on_bedrock() {
         assert_eq!(Sort::World.folder("anything"), PathBuf::from("worlds"));
+    }
+
+    fn sandbox(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("crustation-worlds-{name}"));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).expect("sandbox");
+        root
+    }
+
+    fn world_at(at: &Path, named: Option<&str>) {
+        std::fs::create_dir_all(at).expect("world");
+        std::fs::write(at.join("level.dat"), [0u8; 8]).expect("level.dat");
+        if let Some(named) = named {
+            std::fs::write(at.join("levelname.txt"), named).expect("levelname.txt");
+        }
+    }
+
+    #[test]
+    fn bedrock_worlds_are_the_folders_under_worlds() {
+        let root = sandbox("bedrock");
+        world_at(&root.join("worlds").join("Bedrock level"), Some("My World"));
+        world_at(&root.join("worlds").join("second"), None);
+        // No level.dat, so not a world.
+        std::fs::create_dir_all(root.join("worlds").join("notes")).expect("folder");
+        // A Java-shaped world at the top is not where Bedrock keeps them.
+        world_at(&root.join("elsewhere"), None);
+
+        let found = worlds(&root, true);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].name, "My World");
+        assert_eq!(found[0].folder, "Bedrock level");
+        assert_eq!(found[0].path, "worlds/Bedrock level");
+        assert_eq!(found[1].name, "second");
+    }
+
+    #[test]
+    fn java_worlds_sit_beside_the_jar() {
+        let root = sandbox("java");
+        world_at(&root.join("world"), None);
+        world_at(&root.join("creative"), None);
+        std::fs::create_dir_all(root.join("plugins")).expect("folder");
+
+        let found = worlds(&root, false);
+        assert_eq!(
+            found
+                .iter()
+                .map(|one| one.folder.as_str())
+                .collect::<Vec<_>>(),
+            vec!["creative", "world"]
+        );
+        assert_eq!(found[0].path, "creative");
+    }
+
+    const OTHERS: &str = r#"[
+        { "pack_id": "somebody-elses-pack", "version": [2, 0, 0] },
+        { "pack_id": "one-more", "version": [1, 1, 1] }
+    ]"#;
+
+    fn manifest_of(uuid: &str, version: &str) -> Manifest {
+        read_manifest(
+            &BEHAVIOUR
+                .replace("aaaa-1", uuid)
+                .replace("[1, 2, 3]", version),
+        )
+        .expect("manifest")
+    }
+
+    /// The world a pack would be switched on for, with `world_behavior_packs.json`
+    /// already holding whatever `existing` says.
+    fn world_with(name: &str, existing: Option<&str>) -> (PathBuf, PathBuf) {
+        let root = sandbox(name);
+        let world = root.join("worlds").join("Bedrock level");
+        std::fs::create_dir_all(&world).expect("world");
+        if let Some(text) = existing {
+            std::fs::write(world.join("world_behavior_packs.json"), text).expect("list");
+        }
+        let list = world.join("world_behavior_packs.json");
+        (root, list)
+    }
+
+    #[test]
+    fn switching_a_pack_on_leaves_the_ones_already_there() {
+        let (root, list) = world_with("append", Some(OTHERS));
+        switch_on(
+            &root,
+            "Bedrock level",
+            &manifest_of("new-pack", "[3, 0, 0]"),
+        )
+        .expect("switch on");
+
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
+        let ids: Vec<&str> = rows
+            .iter()
+            .map(|row| row["pack_id"].as_str().expect("id"))
+            .collect();
+        assert_eq!(ids, vec!["somebody-elses-pack", "one-more", "new-pack"]);
+    }
+
+    #[test]
+    fn installing_the_same_pack_again_updates_its_row_rather_than_adding_a_second() {
+        let (root, list) = world_with("update", Some(OTHERS));
+        switch_on(
+            &root,
+            "Bedrock level",
+            &manifest_of("one-more", "[9, 9, 9]"),
+        )
+        .expect("switch on");
+
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1]["version"], serde_json::json!([9, 9, 9]));
+    }
+
+    #[test]
+    fn a_world_with_no_list_yet_gets_one() {
+        let (root, list) = world_with("fresh", None);
+        switch_on(&root, "Bedrock level", &manifest_of("first", "[1, 0, 0]")).expect("switch on");
+
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["pack_id"], "first");
+    }
+
+    #[test]
+    fn a_list_the_panel_cannot_read_is_left_alone_rather_than_written_over() {
+        let (root, list) = world_with("broken", Some("{ this is not a pack list"));
+        let refused = switch_on(
+            &root,
+            "Bedrock level",
+            &manifest_of("new-pack", "[1, 0, 0]"),
+        );
+
+        assert!(
+            refused.is_err(),
+            "a list it cannot read must not be replaced"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&list).expect("read"),
+            "{ this is not a pack list"
+        );
+    }
+
+    #[test]
+    fn a_list_the_game_left_empty_is_an_empty_list() {
+        let (root, list) = world_with("blank", Some("   \n"));
+        switch_on(&root, "Bedrock level", &manifest_of("first", "[1, 0, 0]")).expect("switch on");
+
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&list).expect("read")).expect("parse");
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn a_server_with_nowhere_to_look_has_no_worlds() {
+        let root = sandbox("empty");
+        assert!(worlds(&root, true).is_empty());
     }
 
     #[test]

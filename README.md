@@ -25,6 +25,11 @@ Crab, Rust, shells. The name wrote itself.
 - **A live console** you can type into. Commands go over RCON when a Java server has it set up.
 - **Stats** for the host and for each server process, with history.
 - **Users, roles and API keys**, with per-server permissions.
+- **Add-ons and worlds** on their own tab: install a .mcaddon or .mcpack and it is unpacked where
+  the server reads it and switched on for the world you pick; import a .mcworld and it lands under
+  `worlds/` under the name it gives itself.
+- **An MCP server** at `/mcp`, so an assistant can read a console and act on a server through the
+  same permissions an API key already has. See [docs/API.md](docs/API.md).
 
 Not there yet: files, backups, schedules, player lists, webhooks, and the screens for managing
 users. [docs/ROADMAP.md](docs/ROADMAP.md) has the order they are coming in.
@@ -95,6 +100,7 @@ it, which is how the container is configured.
 | `CRUSTATION_CONFIG_DIR`, `CRUSTATION_SERVERS_DIR`, `CRUSTATION_BACKUPS_DIR` | Data locations |
 | `CRUSTATION_ADMIN_USERNAME`, `CRUSTATION_ADMIN_PASSWORD` | First administrator |
 | `CRUSTATION_LOG` | Log filter, for example `debug` |
+| `CRUSTATION_MCP_ENABLED` | Set to `false` to stop serving the MCP endpoint at `/mcp` |
 
 ## Why another one
 

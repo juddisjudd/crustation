@@ -139,12 +139,12 @@ async fn save(
         return Err(ApiError::validation("That is a folder, not a file."));
     }
 
-    if let (Some(expected), Ok(metadata)) = (&body.modified, tokio::fs::metadata(&target).await) {
-        if files::modified_at(&metadata).as_deref() != Some(expected.as_str()) {
-            return Err(ApiError::conflict(
-                "Somebody else changed this file. Reload it and try again.",
-            ));
-        }
+    if let (Some(expected), Ok(metadata)) = (&body.modified, tokio::fs::metadata(&target).await)
+        && files::modified_at(&metadata).as_deref() != Some(expected.as_str())
+    {
+        return Err(ApiError::conflict(
+            "Somebody else changed this file. Reload it and try again.",
+        ));
     }
 
     if let Some(parent) = target.parent() {
@@ -312,10 +312,10 @@ async fn remove(
             true => tokio::fs::remove_dir_all(&target).await,
             false => tokio::fs::remove_file(&target).await,
         };
-        if let Err(error) = result {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(error.into());
-            }
+        if let Err(error) = result
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(error.into());
         }
     }
     audit(

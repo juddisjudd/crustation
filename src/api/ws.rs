@@ -78,10 +78,10 @@ async fn run(socket: WebSocket, state: AppState, identity: Identity) {
                             continue;
                         }
                         // Permissions can change while a socket is open, so check per event.
-                        if let Some(server_id) = event.server_id {
-                            if !can_see_server(&state, &identity, server_id).await {
-                                continue;
-                            }
+                        if let Some(server_id) = event.server_id
+                            && !can_see_server(&state, &identity, server_id).await
+                        {
+                            continue;
                         }
                         let frame = json!({
                             "type": "event",
