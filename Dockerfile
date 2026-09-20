@@ -20,10 +20,13 @@ COPY migrations ./migrations
 COPY src ./src
 RUN touch src/main.rs && cargo build --release
 
-# 3. Runtime: the panel plus the Java versions game servers ask for
+# 3. Runtime: the panel plus every Java a Minecraft release has ever asked for.
+# 8 covers up to 1.16, 11 the 1.12-1.16 modpacks, 17 up to 1.20.4, 21 the 1.21
+# line, and 25 the calendar releases from 26.1 on. The install picks between them.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
+    LOG4J_FORMAT_MSG_NO_LOOKUPS=true \
     CRUSTATION_CONFIG_DIR=/config \
     CRUSTATION_SERVERS_DIR=/servers \
     CRUSTATION_BACKUPS_DIR=/backups \
@@ -36,7 +39,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl gosu tzdata unzip \
-        openjdk-8-jre-headless openjdk-17-jre-headless openjdk-21-jre-headless \
+        openjdk-8-jre-headless openjdk-11-jre-headless openjdk-17-jre-headless \
+        openjdk-21-jre-headless openjdk-25-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home --shell /usr/sbin/nologin crustation
 
