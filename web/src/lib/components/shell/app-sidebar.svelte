@@ -28,9 +28,8 @@
 				<Sidebar.MenuButton size="lg" class="hover:bg-transparent">
 					{#snippet child({ props })}
 						<a href={resolve('/')} {...props}>
-							<div class="grid size-8 place-items-center rounded-md border bg-background">
-								<LogoMark class="h-5 w-auto" />
-							</div>
+							<!-- Square slot, so the mark's left edge lands where the icons below start. -->
+							<LogoMark class="size-8 shrink-0 object-contain" />
 							<span class="font-semibold tracking-tight">Crustation</span>
 						</a>
 					{/snippet}
