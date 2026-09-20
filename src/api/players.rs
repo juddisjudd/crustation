@@ -161,6 +161,7 @@ async fn overview(
 
     // So a row can say at a glance who is an operator and who is shut out,
     // rather than making somebody open each list to find out.
+    let known_by_id = xuid_names(&directory, &kind).await;
     let mut operators = Vec::new();
     let mut banned = Vec::new();
     let mut listed: Vec<String> = Vec::new();
@@ -172,7 +173,14 @@ async fn overview(
                 row.get(one.key)
                     .or_else(|| row.get("name"))
                     .and_then(Value::as_str)
-                    .map(str::to_string)
+            })
+            // A Bedrock permission row holds only an Xbox id, which is nobody's
+            // name. Show the person, not the number.
+            .map(|found| {
+                known_by_id
+                    .get(found)
+                    .cloned()
+                    .unwrap_or_else(|| found.to_string())
             })
             .collect();
         // An address is not somebody, so the banned-ips list stays out of this.
@@ -283,7 +291,7 @@ async fn push_entry(
     reason: Option<String>,
     level: Option<i64>,
 ) -> Result<(), ApiError> {
-    keyed_right(wanted, value)?;
+    let value = &as_key(directory, kind, wanted, value).await?;
     let mut rows = load_list(directory, wanted.file).await?;
     if rows
         .iter()
@@ -334,9 +342,16 @@ async fn push_entry(
 /// Takes a row out, whichever of the ways it can be named the operator used.
 async fn drop_entry(
     directory: &std::path::Path,
+    kind: &str,
     wanted: &Kind,
     value: &str,
 ) -> Result<bool, ApiError> {
+    // Taking a row out by a name it does not carry should still work, so resolve
+    // it where we can and fall back to what was asked for where we cannot.
+    let resolved = as_key(directory, kind, wanted, value)
+        .await
+        .unwrap_or_else(|_| value.to_string());
+    let value = resolved.as_str();
     let rows = load_list(directory, wanted.file).await?;
     let before = rows.len();
     let kept: Vec<Value> = rows
@@ -367,7 +382,7 @@ async fn remove(
     let wanted = find(&kind, &list).ok_or_else(|| ApiError::not_found("List"))?;
 
     let value = body.value.trim();
-    drop_entry(&directory, &wanted, value).await?;
+    drop_entry(&directory, &kind, &wanted, value).await?;
     super::audit(
         &state,
         Some(&identity.user),
@@ -706,21 +721,60 @@ enum Offline {
     Ban(Option<String>),
 }
 
-/// Bedrock keys its permissions by Xbox id, and only the server can turn a
-/// gamertag into one. Writing a name there makes a row the game will ignore, so
-/// say what to do instead rather than writing rubbish.
-fn keyed_right(wanted: &Kind, value: &str) -> Result<(), ApiError> {
-    if wanted.key != "xuid" {
-        return Ok(());
+/// An Xbox id is a long decimal number, and nobody's gamertag is.
+fn is_xuid(value: &str) -> bool {
+    value.len() >= 10 && value.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Bedrock's allow list is the one file holding a name and an Xbox id side by
+/// side, so it is what turns one into the other. Only a player the server has
+/// actually seen has an id written down.
+async fn xuid_names(
+    directory: &std::path::Path,
+    kind: &str,
+) -> std::collections::HashMap<String, String> {
+    let mut found = std::collections::HashMap::new();
+    if kind != "minecraft_bedrock" {
+        return found;
     }
-    if value.len() >= 10 && value.chars().all(|c| c.is_ascii_digit()) {
-        return Ok(());
+    for row in load_list(directory, "allowlist.json")
+        .await
+        .unwrap_or_default()
+    {
+        let xuid = row.get("xuid").and_then(Value::as_str).unwrap_or_default();
+        let name = row.get("name").and_then(Value::as_str).unwrap_or_default();
+        if !xuid.is_empty() && !name.is_empty() {
+            found.insert(xuid.to_string(), name.to_string());
+        }
     }
-    Err(ApiError::conflict(format!(
-        "{} is keyed by Xbox id, which only the server can look up. \
-         Start the server and do it in game, or add the Xbox id on the lists tab.",
-        wanted.file
-    )))
+    found
+}
+
+/// The value as that list keys its rows. Bedrock's permissions are keyed by
+/// Xbox id, so a name has to be looked up; writing the name straight in makes a
+/// row the game quietly ignores.
+async fn as_key(
+    directory: &std::path::Path,
+    kind: &str,
+    wanted: &Kind,
+    value: &str,
+) -> Result<String, ApiError> {
+    if wanted.key != "xuid" || is_xuid(value) {
+        return Ok(value.to_string());
+    }
+    let found = xuid_names(directory, kind)
+        .await
+        .into_iter()
+        .find(|(_, name)| name.eq_ignore_ascii_case(value));
+    match found {
+        Some((xuid, _)) => Ok(xuid),
+        None => Err(ApiError::conflict(format!(
+            "{} is keyed by Xbox id, and the panel has no id for {value} yet. \
+             They get one the first time they connect; until then, start the server \
+             and do it in game.",
+            wanted.file
+        ))),
+    }
 }
 
 async fn apply_offline(
@@ -743,7 +797,7 @@ async fn apply_offline(
         Offline::None => Ok(String::new()),
         Offline::Leave(slug) => {
             let wanted = list(slug)?;
-            drop_entry(directory, &wanted, player).await?;
+            drop_entry(directory, kind, &wanted, player).await?;
             Ok(format!("took {player} out of {}", wanted.file))
         }
         Offline::Join(slug) => {
@@ -770,6 +824,8 @@ async fn rank_in_file(
 ) -> Result<String, ApiError> {
     let bedrock = kind == "minecraft_bedrock";
     let wanted = find(kind, "operators").ok_or_else(|| ApiError::not_found("List"))?;
+    let resolved = as_key(directory, kind, &wanted, name).await?;
+    let name = resolved.as_str();
 
     let value: Value = if bedrock {
         match rank {
@@ -838,21 +894,75 @@ mod tests {
         find("minecraft_bedrock", "operators").expect("Bedrock keeps an operator list")
     }
 
-    #[test]
-    fn a_bedrock_operator_row_needs_an_xbox_id() {
-        assert!(keyed_right(&bedrock_operators(), "Alex").is_err());
-        assert!(keyed_right(&bedrock_operators(), "2535000000000001").is_ok());
+    /// A Bedrock folder with one player the server has seen and one it has not.
+    fn sandbox(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("crustation-players-{name}"));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).expect("sandbox");
+        std::fs::write(
+            root.join("allowlist.json"),
+            r#"[{"name":"ohitsjudd","xuid":"2535458356136740","ignoresPlayerLimit":false},
+                {"name":"ZoooDuck","ignoresPlayerLimit":false}]"#,
+        )
+        .expect("allow list");
+        root
     }
 
     #[test]
-    fn a_java_list_takes_the_name_as_typed() {
+    fn an_xbox_id_is_a_long_number_and_a_gamertag_is_not() {
+        assert!(is_xuid("2535458356136740"));
+        assert!(!is_xuid("ohitsjudd"));
+        assert!(!is_xuid("12345"));
+    }
+
+    #[tokio::test]
+    async fn a_name_the_allow_list_knows_becomes_its_xbox_id() {
+        let root = sandbox("known");
+        let found = as_key(
+            &root,
+            "minecraft_bedrock",
+            &bedrock_operators(),
+            "ohitsjudd",
+        )
+        .await;
+        assert_eq!(found.expect("resolved").as_str(), "2535458356136740");
+    }
+
+    #[tokio::test]
+    async fn a_name_with_no_id_yet_is_refused_rather_than_written() {
+        let root = sandbox("unknown");
+        let found = as_key(&root, "minecraft_bedrock", &bedrock_operators(), "ZoooDuck").await;
+        assert!(found.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_xbox_id_passes_straight_through() {
+        let root = sandbox("passthrough");
+        let found = as_key(
+            &root,
+            "minecraft_bedrock",
+            &bedrock_operators(),
+            "2535000000000001",
+        )
+        .await;
+        assert_eq!(found.expect("kept").as_str(), "2535000000000001");
+    }
+
+    #[tokio::test]
+    async fn a_java_list_takes_the_name_as_typed() {
+        let root = sandbox("java");
         let ops = find("minecraft_java", "operators").expect("Java keeps an operator list");
-        assert!(keyed_right(&ops, "Notch").is_ok());
+        let found = as_key(&root, "minecraft_java", &ops, "Notch").await;
+        assert_eq!(found.expect("kept").as_str(), "Notch");
     }
 
-    #[test]
-    fn an_address_list_is_not_checked_for_xbox_ids() {
-        let ips = find("minecraft_java", "banned-ips").expect("Java keeps a banned-ips list");
-        assert!(keyed_right(&ips, "192.168.1.44").is_ok());
+    #[tokio::test]
+    async fn an_xbox_id_reads_back_as_the_name_it_belongs_to() {
+        let root = sandbox("names");
+        let known = xuid_names(&root, "minecraft_bedrock").await;
+        assert_eq!(
+            known.get("2535458356136740").map(String::as_str),
+            Some("ohitsjudd")
+        );
     }
 }

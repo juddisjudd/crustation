@@ -95,9 +95,10 @@ The reply is `{via, ran, output?, restart_required}`.
   so a level cannot be set in game; the reply says `restart_required` while the server is up.
 - `rank` is 1 to 4 on Java and `visitor`, `member` or `operator` on Bedrock.
 - Bedrock has no ban command and keeps no ban list, so `ban` and `pardon` answer `409 CONFLICT`.
-- Bedrock keys `permissions.json` by Xbox id, which only the running server can look up, so `op`,
-  `deop` and `rank` are refused there while it is down. Started, they go through the game, which
-  writes the right id itself.
+- Bedrock keys `permissions.json` by Xbox id, not by name. The allow list is the one file holding
+  both, so the panel translates a name through it, and reads ids back out as names. A player the
+  server has never seen has no id written down yet, and writing there is refused rather than
+  making a row the game ignores.
 - Every argument is refused if it carries a control character. A command leaves over stdin as one
   line, so a line break in a name would be a second command.
 
