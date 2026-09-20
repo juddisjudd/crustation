@@ -6,22 +6,31 @@
 	import { toast } from 'svelte-sonner';
 	import { tick } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import { Spinner } from '$lib/components/ui/spinner/index.js';
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { api } from '$lib/api/client';
-	import { errorMessage, sendCommand } from '$lib/api/servers';
+	import { enableRcon, errorMessage, rconStatus, sendCommand } from '$lib/api/servers';
 	import { socket } from '$lib/realtime/socket.svelte';
 	import { servers } from '$lib/servers.svelte';
-	import type { ConsoleLine } from '$lib/api/types';
+	import type { ConsoleLine, RconStatus } from '$lib/api/types';
 	import { t } from '$lib/i18n/index.svelte';
 
 	const MAX_LINES = 2000;
+
+	const STREAM_STYLE: Record<ConsoleLine['stream'], string> = {
+		stdout: '',
+		stderr: 'text-[#ff6166]',
+		command: 'text-white/45',
+		rcon: 'text-[#7fd1b9]'
+	};
 
 	let { data } = $props();
 
 	const server = $derived(data.server);
 	const running = $derived(servers.isRunning(server.id));
 	const canCommand = $derived(server.permissions.includes('COMMANDS'));
+	const canConfigure = $derived(server.permissions.includes('CONFIG'));
 
 	let lines = $state.raw<ConsoleLine[]>([]);
 	let viewport = $state<HTMLDivElement | null>(null);
@@ -30,6 +39,11 @@
 	let sending = $state(false);
 	let history: string[] = [];
 	let historyIndex = -1;
+	let rcon = $state<RconStatus | null>(null);
+	let enabling = $state(false);
+
+	// Reachability is proven by connecting, so re-check when the server comes up.
+	const rconProbe = $derived({ id: server.id, running });
 
 	function append(incoming: ConsoleLine[]) {
 		if (!incoming.length) return;
@@ -49,6 +63,38 @@
 	}
 
 	$effect(() => socket.subscribe([`server:${server.id}:console`]));
+
+	$effect(() => {
+		const { id } = rconProbe;
+		let cancelled = false;
+		rconStatus(id)
+			.then((status) => {
+				if (!cancelled) rcon = status;
+			})
+			.catch(() => {
+				if (!cancelled) rcon = null;
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	async function turnOnRcon() {
+		enabling = true;
+		try {
+			const result = await enableRcon(server.id);
+			rcon = await rconStatus(server.id);
+			toast.success(
+				result.restart_required
+					? t('server.console.rconEnabledRestart')
+					: t('server.console.rconEnabledNow', { port: String(result.port) })
+			);
+		} catch (err) {
+			toast.error(t('server.console.rconError'), { description: errorMessage(err) });
+		} finally {
+			enabling = false;
+		}
+	}
 
 	$effect(() => {
 		const id = server.id;
@@ -133,6 +179,38 @@
 				<span class={['size-1.5 rounded-full', running ? 'bg-success' : 'bg-white/30']}></span>
 				{running ? t('server.console.live') : t('server.console.offline')}
 			</span>
+			{#if rcon?.supported}
+				{@const status = rcon}
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							{#if status.enabled}
+								<span
+									{...props}
+									class="rounded border border-white/10 px-1.5 py-0.5 text-[10px] tracking-wide uppercase"
+								>
+									{t('server.console.rconOn')}
+								</span>
+							{:else if canConfigure}
+								<Button
+									{...props}
+									variant="ghost"
+									size="sm"
+									class="h-6 px-2 text-[11px] text-white/60 hover:bg-white/10 hover:text-white"
+									disabled={enabling}
+									onclick={turnOnRcon}
+								>
+									{#if enabling}<Spinner />{/if}
+									{t('server.console.rconOff')}
+								</Button>
+							{/if}
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>
+						{status.enabled ? t('server.console.rconOnHint') : t('server.console.rconOffHint')}
+					</Tooltip.Content>
+				</Tooltip.Root>
+			{/if}
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
@@ -166,9 +244,7 @@
 				</p>
 			{/if}
 			{#each lines as line (line.seq)}
-				<div
-					class={['break-words whitespace-pre-wrap', line.stream === 'stderr' && 'text-[#ff6166]']}
-				>
+				<div class={['break-words whitespace-pre-wrap', STREAM_STYLE[line.stream]]}>
 					{line.text || ' '}
 				</div>
 			{/each}

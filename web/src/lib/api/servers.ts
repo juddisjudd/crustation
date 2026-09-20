@@ -1,5 +1,6 @@
 import { toast } from 'svelte-sonner';
 import { api, ApiError } from './client';
+import type { CommandResult, RconStatus } from './types';
 
 export type PowerAction = 'start' | 'stop' | 'restart' | 'kill';
 
@@ -27,5 +28,13 @@ export async function powerAction(serverId: string, action: PowerAction, serverN
 }
 
 export function sendCommand(serverId: string, command: string) {
-	return api.post(`/servers/${serverId}/command`, { command });
+	return api.post<CommandResult>(`/servers/${serverId}/command`, { command });
+}
+
+export function rconStatus(serverId: string) {
+	return api.get<RconStatus>(`/servers/${serverId}/rcon`);
+}
+
+export function enableRcon(serverId: string) {
+	return api.post<{ port: number; restart_required: boolean }>(`/servers/${serverId}/rcon`, {});
 }

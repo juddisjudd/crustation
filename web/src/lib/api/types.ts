@@ -106,6 +106,21 @@ export interface HostStats {
 export interface ConsoleLine {
 	seq: number;
 	at: string;
-	stream: 'stdout' | 'stderr';
+	/** `command` and `rcon` are the panel's own echo of an RCON exchange. */
+	stream: 'stdout' | 'stderr' | 'command' | 'rcon';
 	text: string;
+}
+
+export interface CommandResult {
+	via: 'rcon' | 'stdin';
+	output: string | null;
+}
+
+export interface RconStatus {
+	/** Java speaks RCON; Bedrock does not. */
+	supported: boolean;
+	enabled: boolean;
+	port: number | null;
+	/** Proven by connecting, so only ever true while the server is up. */
+	reachable: boolean;
 }

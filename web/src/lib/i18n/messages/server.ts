@@ -39,6 +39,14 @@ export const server = {
 		placeholderStopped: 'Start the server to send commands',
 		send: 'Send command',
 		historyError: 'Could not load the console history',
-		sendError: 'Command not sent'
+		sendError: 'Command not sent',
+		rconOn: 'RCON',
+		rconOnHint: 'Commands run over RCON, so the server answers back here.',
+		rconOff: 'Enable RCON',
+		rconOffHint:
+			'Turn on RCON so commands return the server’s answer. It writes a password into server.properties and takes effect on the next restart.',
+		rconEnabledRestart: 'RCON is on. Restart the server to start using it.',
+		rconEnabledNow: 'RCON is on, listening on port {port}.',
+		rconError: 'Could not turn RCON on'
 	}
 } as const;

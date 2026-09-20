@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{
@@ -13,6 +15,7 @@ use uuid::Uuid;
 use crate::auth::Identity;
 use crate::error::{ApiError, ApiResult, Done, Ok as OkJson};
 use crate::perms::Server as ServerPerm;
+use crate::properties::{self, Properties};
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -22,6 +25,7 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/action", post(action))
         .route("/{id}/command", post(command))
         .route("/{id}/console", get(console))
+        .route("/{id}/rcon", get(rcon_status).post(rcon_enable))
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -433,9 +437,9 @@ async fn command(
     if body.command.trim().is_empty() {
         return Err(ApiError::field("command", "Type a command first."));
     }
-    state
+    let outcome = state
         .supervisor
-        .send(id, body.command.trim())
+        .run_command(id, body.command.trim())
         .await
         .map_err(|error| ApiError::conflict(error.to_string()))?;
     crate::api::audit(
@@ -446,7 +450,143 @@ async fn command(
         Some(body.command.trim()),
     )
     .await;
-    Ok(Done)
+    Ok(OkJson(
+        json!({ "via": outcome.via, "output": outcome.output }),
+    ))
+}
+
+/// Only Java servers speak RCON; Bedrock has no such listener.
+fn speaks_rcon(row: &ServerRow) -> bool {
+    row.kind == "minecraft_java"
+}
+
+async fn rcon_status(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    identity
+        .require_server(&state.db, id, ServerPerm::Commands)
+        .await?;
+    let row = load(&state, id).await?;
+    let directory = PathBuf::from(&row.directory);
+
+    let settings = match speaks_rcon(&row) {
+        true => crate::rcon::settings(&directory)
+            .await
+            .map_err(ApiError::Internal)?,
+        false => None,
+    };
+    let configured = settings
+        .as_ref()
+        .is_some_and(|settings| settings.enabled && settings.has_password);
+
+    // Proving it works needs an actual connection, which only exists while the
+    // server is up.
+    let mut reachable = false;
+    if configured && state.supervisor.state(id).await.is_live() {
+        if let Ok(Some(endpoint)) = crate::rcon::endpoint(&directory).await {
+            reachable = crate::rcon::check(&endpoint).await.is_ok();
+        }
+    }
+
+    Ok(OkJson(json!({
+        "supported": speaks_rcon(&row),
+        "enabled": configured,
+        "port": settings.as_ref().and_then(|settings| settings.port),
+        "reachable": reachable,
+    })))
+}
+
+#[derive(Deserialize)]
+struct RconEnable {
+    /// Replace a password that is already in the file.
+    #[serde(default)]
+    regenerate_password: bool,
+}
+
+async fn rcon_enable(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<RconEnable>,
+) -> ApiResult<impl IntoResponse> {
+    identity
+        .require_server(&state.db, id, ServerPerm::Config)
+        .await?;
+    let row = load(&state, id).await?;
+    if !speaks_rcon(&row) {
+        return Err(ApiError::validation(
+            "Only Java servers speak RCON. Bedrock takes commands on the console only.",
+        ));
+    }
+
+    let directory = PathBuf::from(&row.directory);
+    let Some(mut file) = Properties::load_if_present(properties::path_in(&directory))
+        .await
+        .map_err(ApiError::Internal)?
+    else {
+        return Err(ApiError::conflict(
+            "Start the server once so it writes server.properties, then turn RCON on.",
+        ));
+    };
+
+    let port = match file
+        .number("rcon.port")
+        .filter(|port| *port > 0 && *port < 65536)
+    {
+        Some(port) => port,
+        None => {
+            let taken = reserved_ports(&state, &row).await;
+            crate::rcon::free_port(&taken)
+                .await
+                .map(i64::from)
+                .ok_or_else(|| ApiError::conflict("No free port for the RCON listener."))?
+        }
+    };
+
+    let password = match file.get("rcon.password") {
+        Some(existing) if !existing.is_empty() && !body.regenerate_password => existing,
+        _ => crate::rcon::generate_password(),
+    };
+
+    file.set("enable-rcon", "true");
+    file.set("rcon.port", &port.to_string());
+    file.set("rcon.password", &password);
+    file.save().await.map_err(ApiError::Internal)?;
+
+    crate::api::audit(
+        &state,
+        Some(&identity.user),
+        Some(id),
+        "turned on RCON",
+        Some(&row.name),
+    )
+    .await;
+
+    Ok(OkJson(json!({
+        "port": port,
+        "restart_required": state.supervisor.state(id).await.is_live(),
+    })))
+}
+
+/// Ports the panel should not hand to a new RCON listener.
+async fn reserved_ports(state: &AppState, row: &ServerRow) -> Vec<i64> {
+    let mut taken = vec![state.config.http.port as i64, row.port];
+    let others: Vec<(String, i64)> =
+        sqlx::query_as("SELECT directory, port FROM servers WHERE id != ?")
+            .bind(&row.id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+
+    for (directory, port) in others {
+        taken.push(port);
+        if let Ok(Some(settings)) = crate::rcon::settings(&PathBuf::from(directory)).await {
+            taken.extend(settings.port);
+        }
+    }
+    taken
 }
 
 #[derive(Deserialize)]

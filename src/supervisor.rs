@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -94,6 +94,23 @@ impl Instance {
             backing_up: false,
             updating: false,
         }
+    }
+
+    /// Appends to the ring buffer and hands back the line to publish.
+    fn push(&mut self, stream: &'static str, text: String, backlog: usize) -> ConsoleLine {
+        let line = ConsoleLine {
+            seq: self.next_seq,
+            at: Utc::now(),
+            stream,
+            text,
+        };
+        self.next_seq += 1;
+        self.console.push(line.clone());
+        if self.console.len() > backlog {
+            let excess = self.console.len() - backlog;
+            self.console.drain(0..excess);
+        }
+        line
     }
 
     fn flags(&self) -> serde_json::Value {
@@ -275,18 +292,7 @@ impl Supervisor {
             let mut lines = BufReader::new(reader).lines();
             while let Ok(Some(text)) = lines.next_line().await {
                 let mut guard = instance.lock().await;
-                let line = ConsoleLine {
-                    seq: guard.next_seq,
-                    at: Utc::now(),
-                    stream,
-                    text,
-                };
-                guard.next_seq += 1;
-                guard.console.push(line.clone());
-                if guard.console.len() > backlog {
-                    let excess = guard.console.len() - backlog;
-                    guard.console.drain(0..excess);
-                }
+                let line = guard.push(stream, text, backlog);
                 // A server that prints "Done" is up; good enough across the games we run.
                 if guard.state == State::Starting && looks_ready(&line.text) {
                     guard.state = State::Running;
@@ -394,6 +400,70 @@ impl Supervisor {
         Ok(())
     }
 
+    /// Adds a line the panel produced, so everyone watching the console sees it.
+    pub async fn push_console(&self, id: Uuid, stream: &'static str, text: String) {
+        let instance = self.instance(id).await;
+        let line = {
+            let mut guard = instance.lock().await;
+            guard.push(stream, text, self.config.panel.console_backlog)
+        };
+        self.events
+            .console_line(id, serde_json::to_value(&line).unwrap_or_default());
+    }
+
+    /// Runs a command over RCON when the server has it set up, and over stdin
+    /// otherwise. Only RCON hands an answer back.
+    pub async fn run_command(&self, id: Uuid, command: &str) -> Result<Outcome> {
+        if !self.state(id).await.is_live() {
+            bail!("the server is not running");
+        }
+
+        if let Some(endpoint) = self.rcon_endpoint(id).await {
+            match crate::rcon::run(&endpoint, command).await {
+                Ok(output) => {
+                    // The server logs commands typed on stdin but not these, so
+                    // echo both sides into the console everyone is watching.
+                    self.push_console(id, "command", format!("> {command}"))
+                        .await;
+                    let output = output.trim_end().to_string();
+                    for text in output.lines() {
+                        self.push_console(id, "rcon", text.to_string()).await;
+                    }
+                    return Ok(Outcome {
+                        via: "rcon",
+                        output: Some(output),
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, server = %id, "RCON failed, falling back to stdin");
+                }
+            }
+        }
+
+        self.send(id, command).await?;
+        Ok(Outcome {
+            via: "stdin",
+            output: None,
+        })
+    }
+
+    async fn rcon_endpoint(&self, id: Uuid) -> Option<crate::rcon::Endpoint> {
+        let row: (String, String) =
+            sqlx::query_as("SELECT directory, kind FROM servers WHERE id = ?")
+                .bind(id.to_string())
+                .fetch_one(&self.db)
+                .await
+                .ok()?;
+        // Bedrock has no RCON, so stdin stays its only command path.
+        if row.1 != "minecraft_java" {
+            return None;
+        }
+        crate::rcon::endpoint(Path::new(&row.0))
+            .await
+            .ok()
+            .flatten()
+    }
+
     /// Asks politely, waits, then kills.
     pub async fn stop(&self, id: Uuid) -> Result<()> {
         let launch = self.launch_for(id).await?;
@@ -473,6 +543,12 @@ impl Supervisor {
     pub async fn pid(&self, id: Uuid) -> Option<u32> {
         self.instance(id).await.lock().await.pid
     }
+}
+
+/// How a command reached the server, and anything it said back.
+pub struct Outcome {
+    pub via: &'static str,
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

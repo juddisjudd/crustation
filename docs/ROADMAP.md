@@ -16,6 +16,9 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   Java discovery.
 - Svelte interface on `/api/v1` with topic subscriptions: sign-in, overview, server page, live
   console.
+- RCON on Java servers: the panel turns it on in `server.properties`, sends commands over it when
+  it is set up, falls back to stdin when it is not, and puts both sides of the exchange in the
+  console everyone is watching.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
@@ -25,11 +28,9 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
    download with progress, EULA handling, first-run setup; import from a zip or an existing folder.
    Mojang puts the Bedrock download behind bot protection, so that provider also needs a paste-a-URL
    or upload-the-zip path.
-2. **RCON and protocol status.** RCON gives Java servers command responses instead of console echo,
-   so `/list`, `/tps` and `/whitelist list` return data the panel can use. Server List Ping on Java
-   and the RakNet unconnected ping on Bedrock report MOTD, version, player count and latency over
-   the wire, including for servers the panel did not start; console parsing stays as the fallback.
-   Bedrock has no RCON, so stdin remains its only command path and the interface should say so.
+2. **Protocol status.** Server List Ping on Java and the RakNet unconnected ping on Bedrock report
+   MOTD, version, player count and latency over the wire, including for servers the panel did not
+   start; console parsing stays as the fallback.
 3. **server.properties editor.** A typed form with descriptions, validation, a diff before apply,
    and a badge on the keys that need a restart. Same file on Java and Bedrock, different keys.
 4. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.

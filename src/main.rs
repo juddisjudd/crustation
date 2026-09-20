@@ -6,6 +6,8 @@ mod error;
 mod events;
 mod java;
 mod perms;
+mod properties;
+mod rcon;
 mod state;
 mod stats;
 mod supervisor;
