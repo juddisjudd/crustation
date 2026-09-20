@@ -265,6 +265,15 @@ const JAVA: &[Known] = &[
         kind: Kind::Flag,
     },
     Known {
+        key: "initial-enabled-packs",
+        label: "Data packs",
+        help: "Comma-separated, and only read when the world is first made. \
+               Naming a feature pack here is how this version's experiments are turned on.",
+        group: "World",
+        default: "vanilla",
+        kind: Kind::Text,
+    },
+    Known {
         key: "motd",
         label: "Message of the day",
         help: "The line players see under the server name in their list.",
@@ -582,6 +591,11 @@ mod tests {
         let bedrock = known("minecraft_bedrock", "gamemode").expect("known");
         assert!(check(bedrock, "spectator").is_err());
         assert!(check(bedrock, "adventure").is_ok());
+
+        // Java turns experiments on with a feature pack; Bedrock keeps its
+        // toggles in the world file, out of reach of server.properties.
+        assert!(known("minecraft_java", "initial-enabled-packs").is_some());
+        assert!(known("minecraft_bedrock", "initial-enabled-packs").is_none());
     }
 
     /// Both editions ship with the list on, which is the opposite of what people

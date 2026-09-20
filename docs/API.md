@@ -204,6 +204,14 @@ a heading to lay the fields out under. Java and Bedrock name several of the same
 differently, so the two lists overlap only in part: `motd` against `server-name`, `white-list`
 against `allow-list`. The keys that no longer exist in current Minecraft, such as `pvp` and
 `allow-nether`, are not offered.
+
+Both editions start with the allow list **on**, so a server nobody has been added to lets nobody
+in. The defaults here say so rather than guessing the friendlier answer.
+
+Experiments split by edition. Java turns them on through `initial-enabled-packs`, a
+comma-separated list read only when the world is first made, so it is offered here. Bedrock keeps
+its toggles in the world's `level.dat` instead, where `server.properties` cannot reach them; that
+needs the world editing which is still on the roadmap.
 Mojang publishes only the current Bedrock server, so that provider lists the release and the
 preview; anything older has to arrive as a `url` or a `zip`.
 

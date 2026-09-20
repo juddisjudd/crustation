@@ -55,7 +55,10 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 8. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
    rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
    Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
-   and the End.
+   and the End. Bedrock keeps its experiment toggles, Beta APIs among them, in the world's
+   `level.dat` rather than in `server.properties`, so turning those on means reading and writing
+   Bedrock's little-endian NBT. Java needs none of that: its experiments arrive as feature packs
+   named in `initial-enabled-packs`, which server creation already offers.
 9. **Guarded upgrades.** Back up, swap the jar, start, and roll back on its own if the server never
    reaches ready.
 10. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
