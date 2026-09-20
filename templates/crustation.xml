@@ -23,8 +23,8 @@
   </Overview>
   <Category>GameServers: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/juddisjudd/crustation/main/docker/unraid.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/juddisjudd/crustation/main/docs/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/juddisjudd/crustation/main/templates/crustation.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/juddisjudd/crustation/main/icons/crustation.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>

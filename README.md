@@ -41,9 +41,10 @@ On first start the panel creates an administrator. Set `CRUSTATION_ADMIN_USERNAM
 
 ### Unraid
 
-`docker/unraid.xml` is a Community Applications template. Add it through **Docker → Add Container →
-Template URL**. It maps config, servers and backups as three shares and honours `PUID` / `PGID`, so
-files stay owned by your Unraid user instead of root.
+`templates/crustation.xml` is a Community Applications template. Until the app is listed in CA, add
+it through **Docker → Add Container → Template URL** with the raw URL of that file. It maps config,
+servers and backups as three shares and honours `PUID` / `PGID`, so files stay owned by your Unraid
+user instead of root.
 
 ### From source
 
@@ -74,7 +75,8 @@ it, which is how the container is configured:
 src/            the panel: http, auth, supervisor, stats, events
 migrations/     SQLite schema
 web/            the Svelte interface
-docker/         entrypoint and the Unraid template
+docker/         container entrypoint
+templates/      Unraid Community Applications template
 docs/           architecture, API contract, roadmap
 ```
 
