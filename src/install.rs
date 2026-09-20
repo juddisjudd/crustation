@@ -883,8 +883,11 @@ mod tests {
             &Layout::Jar,
         );
 
+        // join picks the separator, so ask it rather than spelling one out: the
+        // backslashes and the space are what this is really about.
+        let expected = job.directory.join("bedrock_server.exe");
         let parts = shell_words::split(&command).expect("the command parses");
-        assert_eq!(parts, [r"C:\Program Files\servers\abc\bedrock_server.exe"]);
+        assert_eq!(parts, [expected.to_string_lossy()]);
     }
 
     /// The flags are stored as one string and split again on the next start, so the
