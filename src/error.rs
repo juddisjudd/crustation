@@ -23,7 +23,6 @@ pub enum ApiError {
     },
     #[error("too many attempts")]
     RateLimited { retry_after: u64 },
-    #[allow(dead_code, reason = "returned by provider downloads")]
     #[error("{0}")]
     Unavailable(String),
     #[error(transparent)]
@@ -85,6 +84,12 @@ impl ApiError {
     }
 }
 
+impl From<std::io::Error> for ApiError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Internal(error.into())
+    }
+}
+
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
         match error {
@@ -141,7 +146,6 @@ impl IntoResponse for Done {
     }
 }
 
-#[allow(dead_code, reason = "used by create endpoints")]
 pub struct Created<T>(pub T);
 
 impl<T: Serialize> IntoResponse for Created<T> {

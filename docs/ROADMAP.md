@@ -19,41 +19,45 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 - RCON on Java servers: the panel turns it on in `server.properties`, sends commands over it when
   it is set up, falls back to stdin when it is not, and puts both sides of the exchange in the
   console everyone is watching.
+- Server creation: Vanilla, Paper, Purpur, Fabric, NeoForge and Bedrock, resolved from each
+  project's own API; download with progress and checksum, the NeoForge installer, unpacking
+  Bedrock, EULA, port, and a start command worked out per flavour. Import from an uploaded zip
+  (with a picker for the folder inside it), a folder on the host, or a pasted URL. Install runs in
+  the background and reports itself over the WebSocket and into the console.
+- New servers start on a JVM that suits them: the install reads what the version asks of Java and
+  picks from the runtimes on the host, and runs it on the flags its project recommends, sized to
+  the memory limit. The image carries Java 8, 11, 17, 21 and 25 to choose between.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
 ## Next
 
-1. **Server creation.** Providers for Vanilla, Paper, Purpur, Fabric, NeoForge and Bedrock;
-   download with progress, EULA handling, first-run setup; import from a zip or an existing folder.
-   Mojang puts the Bedrock download behind bot protection, so that provider also needs a paste-a-URL
-   or upload-the-zip path.
-2. **Protocol status.** Server List Ping on Java and the RakNet unconnected ping on Bedrock report
+1. **Protocol status.** Server List Ping on Java and the RakNet unconnected ping on Bedrock report
    MOTD, version, player count and latency over the wire, including for servers the panel did not
    start; console parsing stays as the fallback.
-3. **server.properties editor.** A typed form with descriptions, validation, a diff before apply,
+2. **server.properties editor.** A typed form with descriptions, validation, a diff before apply,
    and a badge on the keys that need a restart. Same file on Java and Bedrock, different keys.
-4. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
-5. **Backups.** Configs, runs with progress, retention, restore, download, excludes. Taken
+3. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
+4. **Backups.** Configs, runs with progress, retention, restore, download, excludes. Taken
    automatically before anything destructive: version changes, content installs, restores.
-6. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
+5. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
    restart broadcasts a warning ladder in game before it stops the server.
-7. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
+6. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
    `banned-ips.json` on Java, `allowlist.json` and `permissions.json` on Bedrock (keyed by XUID),
    all as editable tables with username to UUID lookup and player heads.
-8. **Users and roles.** Administration screens and their endpoints, plus invite links that grant a
+7. **Users and roles.** Administration screens and their endpoints, plus invite links that grant a
    scoped per-server role, so an owner can hand a friend console-only access.
-9. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
+8. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
    rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
    Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
    and the End.
-10. **Guarded upgrades.** Back up, swap the jar, start, and roll back on its own if the server never
-    reaches ready.
-11. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
+9. **Guarded upgrades.** Back up, swap the jar, start, and roll back on its own if the server never
+   reaches ready.
+10. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
     failed-backup notifications, and browser push through the manifest the interface already ships.
-12. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
+11. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
     RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
-13. **Public status page**, panel settings, branding.
+12. **Public status page**, panel settings, branding.
 
 ## Alongside
 
@@ -63,7 +67,6 @@ Unblocked by the list above, and most of what makes the panel feel finished:
   timestamp toggle, download the buffer.
 - Saved command macros per server, as buttons.
 - Bulk actions across servers, reachable from the command palette.
-- JVM flag presets sized to the memory limit, instead of a hand-written command line.
 - A warning when two servers claim the same port.
 - Audit entries on the server page: who did what, and when.
 

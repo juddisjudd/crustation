@@ -134,7 +134,6 @@ impl Config {
         self.paths.config.join("crustation.db")
     }
 
-    #[allow(dead_code, reason = "used by server creation and backups")]
     pub fn server_dir(&self, id: &uuid::Uuid) -> PathBuf {
         self.paths.servers.join(id.to_string())
     }

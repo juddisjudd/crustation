@@ -4,8 +4,10 @@ A control panel for game servers. One Rust binary supervises the server processe
 Svelte web interface. Crab, Rust, shells — the name wrote itself.
 
 **Status: early.** Sign-in, the server list, start/stop/restart/kill, a live console you can type
-into, host and per-process stats, and the Docker and Unraid packaging all work. Creating a server
-from the interface does not exist yet, nor do files, backups, schedules, users or webhooks.
+into, host and per-process stats, and the Docker and Unraid packaging all work. You can create a
+server from the interface: Vanilla, Paper, Purpur, Fabric, NeoForge and Bedrock download and set
+themselves up on a JVM and GC flags that suit the version, or you can import one you already have
+from a zip, a folder or a link. Files, backups, schedules, users and webhooks do not exist yet.
 [docs/ROADMAP.md](docs/ROADMAP.md) tracks the order I'm building them in.
 
 ![Overview](docs/screenshots/overview.png)
@@ -33,7 +35,8 @@ docker run -d --name crustation \
   ghcr.io/juddisjudd/crustation:latest
 ```
 
-`docker-compose.yml` does the same thing. The image carries Java 8, 17 and 21 for the game servers.
+`docker-compose.yml` does the same thing. The image carries Java 8, 11, 17, 21 and 25, and each
+server is started on whichever of them its version asks for.
 
 On first start the panel creates an administrator. Set `CRUSTATION_ADMIN_USERNAME` and
 `CRUSTATION_ADMIN_PASSWORD`, or let it generate a password into `config/first-login.txt`. Then open
@@ -76,7 +79,7 @@ it, which is how the container is configured:
 ## Layout
 
 ```
-src/            the panel: http, auth, supervisor, stats, events
+src/            the panel: http, auth, supervisor, providers, installs, stats, events
 migrations/     SQLite schema
 web/            the Svelte interface
 docker/         container entrypoint

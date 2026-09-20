@@ -1,14 +1,17 @@
 <script lang="ts">
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import { resolve } from '$app/paths';
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import * as Empty from '$lib/components/ui/empty/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import Meter from '$lib/components/meter.svelte';
 	import StatusDot from '$lib/components/shell/status-dot.svelte';
 	import ServerActionsMenu from '$lib/components/servers/server-actions-menu.svelte';
 	import { servers, statusLabel } from '$lib/servers.svelte';
+	import { session } from '$lib/session.svelte';
 	import { host } from '$lib/host.svelte';
 	import { bytes, percent, kindLabel } from '$lib/format';
 	import { t } from '$lib/i18n/index.svelte';
@@ -40,6 +43,12 @@
 				{/if}
 			</p>
 		</div>
+		{#if session.can('CREATE_SERVER')}
+			<Button href={resolve('/servers/new')}>
+				<PlusIcon />
+				{t('nav.newServer')}
+			</Button>
+		{/if}
 	</div>
 
 	<section
@@ -136,6 +145,14 @@
 					<Empty.Title>{t('dashboard.emptyTitle')}</Empty.Title>
 					<Empty.Description>{t('dashboard.emptyBody')}</Empty.Description>
 				</Empty.Header>
+				{#if session.can('CREATE_SERVER')}
+					<Empty.Content>
+						<Button href={resolve('/servers/new')}>
+							<PlusIcon />
+							{t('nav.newServer')}
+						</Button>
+					</Empty.Content>
+				{/if}
 			</Empty.Root>
 		{:else if filtered.length === 0}
 			<p class="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">

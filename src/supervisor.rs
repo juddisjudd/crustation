@@ -24,7 +24,6 @@ pub enum State {
     Running,
     Stopping,
     Crashed,
-    #[allow(dead_code, reason = "set while a server is being downloaded")]
     Installing,
 }
 
@@ -198,7 +197,6 @@ impl Supervisor {
 
     /// Marks a long-running job so the interface can show it. Returns a guard-like
     /// setter the caller uses again to clear the flag.
-    #[allow(dead_code, reason = "used by installs, backups and updates")]
     pub async fn set_flag(&self, id: Uuid, flag: Flag, value: bool) {
         let instance = self.instance(id).await;
         let mut guard = instance.lock().await;
@@ -552,10 +550,11 @@ pub struct Outcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "used by installs, backups and updates")]
 pub enum Flag {
     Installing,
+    #[allow(dead_code, reason = "used by backups")]
     BackingUp,
+    #[allow(dead_code, reason = "used by guarded upgrades")]
     Updating,
 }
 

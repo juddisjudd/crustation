@@ -53,13 +53,13 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | Method | Path                    | Purpose                                                                                                                                                                                                                                                                                         |
 | ------ | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/servers`              | Servers the caller can see, each with `stats`, `flags` and the caller's `permissions`. One call feeds the whole overview.                                                                                                                                                                       |
-| POST   | `/servers`              | Create from a provider download or an import. Returns `{id}`; the work continues in the background and is reported over the WebSocket.                                                                                                                                                          |
+| POST   | `/servers`              | Create from a provider download or an import. Returns `201 {id}`; the work continues in the background and is reported over the WebSocket. Requires `CREATE_SERVER`.                                                                                                                            |
 | GET    | `/servers/{id}`         | One server with its settings, stats, flags and permissions.                                                                                                                                                                                                                                     |
 | PATCH  | `/servers/{id}`         | Change settings. Only fields the caller may change are accepted.                                                                                                                                                                                                                                |
 | DELETE | `/servers/{id}`         | `?delete_files=true` also removes the folder.                                                                                                                                                                                                                                                   |
 | POST   | `/servers/{id}/action`  | `{action: "start"\|"stop"\|"restart"\|"kill"\|"clone"}`. Returns immediately; watch the events.                                                                                                                                                                                                 |
 | POST   | `/servers/{id}/command` | `{command}` → `{via: "rcon"\|"stdin", output}`. Goes over RCON when the server has it set up, and over stdin otherwise; only RCON returns `output`. Requires `COMMANDS`.                                                                                                                        |
-| GET    | `/servers/{id}/console` | Recent console lines: `{lines: [{seq, at, stream, text}]}`, `?after=<seq>` for the tail. `stream` is `stdout`, `stderr`, or `command` and `rcon` for the panel's echo of an RCON exchange.                                                                                                      |
+| GET    | `/servers/{id}/console` | Recent console lines: `{lines: [{seq, at, stream, text}]}`, `?after=<seq>` for the tail. `stream` is `stdout`, `stderr`, `install` for what the installer did, and `command` and `rcon` for the panel's echo of an RCON exchange.                                                              |
 | GET    | `/servers/{id}/rcon`    | `{supported, enabled, port, reachable}`. `supported` is false for Bedrock, which has no RCON. `reachable` is proven by connecting, so it is only ever true while the server is up. Requires `COMMANDS`.                                                                                         |
 | POST   | `/servers/{id}/rcon`    | Turns RCON on: sets `enable-rcon`, picks a free port and writes a password into `server.properties`. `{regenerate_password}` replaces one that is already there. Returns `{port, restart_required}`. `409 CONFLICT` when the server has not written `server.properties` yet. Requires `CONFIG`. |
 | GET    | `/servers/{id}/logs`    | Log files: `{files: [{name, size, modified}]}`; `?file=` returns its contents.                                                                                                                                                                                                                  |
@@ -114,6 +114,72 @@ A server object is flat and honest about what is derived:
 
 `state` is one of `stopped | starting | running | stopping | crashed | installing`.
 
+## Creating a server
+
+`POST /servers` takes the settings and one `source`. Everything but `name`, `agree_to_eula` and
+`source` has a default.
+
+```json
+{
+  "name": "Survival",
+  "host": "0.0.0.0",
+  "port": 25565,
+  "min_memory_mb": 1024,
+  "max_memory_mb": 4096,
+  "java_binary": null,
+  "java_flags": "",
+  "autostart": false,
+  "agree_to_eula": true,
+  "source": { "type": "provider", "provider": "paper", "version": "1.21.11" }
+}
+```
+
+The other three sources name their own `kind`, because nothing else can tell the panel whether the
+files are Java or Bedrock:
+
+```json
+{ "type": "url",    "kind": "minecraft_bedrock", "url": "https://…/bedrock-server-1.26.51.1.zip", "executable": "bedrock_server" }
+{ "type": "zip",    "kind": "minecraft_java", "upload_id": "…", "internal_path": "MyOldServer", "executable": "server.jar" }
+{ "type": "folder", "kind": "minecraft_java", "path": "/mnt/user/appdata/minecraft", "executable": "server.jar" }
+```
+
+- `java_binary` null lets the panel choose. Where a project states a floor it supports anything
+  above, such as Paper, it takes the newest installed runtime; where the project names the runtime
+  a release was built for, such as Mojang's own manifest, it stays as close to that as the host
+  allows, because Minecraft 1.16 asks for Java 8 and does not survive Java 25.
+- `java_flags` empty means the flags the project recommends for itself, which Paper publishes and
+  the rest borrow, raised to Aikar's larger regions once the heap reaches 12 GB. Anything you send
+  is used verbatim instead. Both the chosen runtime and the flags are written back to the server.
+- `executable` is optional on an import; left out, the panel looks for `server.jar`, then the
+  largest jar that is not an installer, or `bedrock_server` on Bedrock.
+- A `.zip` at a `url` is unpacked; anything else is kept as the server jar.
+- `folder` copies rather than moves, and is **administrator only**: `CREATE_SERVER` alone does not
+  grant reading arbitrary paths on the host.
+- `agree_to_eula` must be true. It writes `eula.txt` for Java servers.
+- Validation answers `422` with `fields` keyed as `name`, `port`, `min_memory_mb`, `agree_to_eula`,
+  `source.provider`, `source.version`, `source.kind`, `source.url`, `source.path`,
+  `source.upload_id`.
+
+The reply is `201 {"id": "…"}` as soon as the row exists. Downloading, unpacking and configuring
+happen after that, reported as `install` events on `server:<id>` and as `install` console lines. A
+failed install leaves the server in place with an empty start command so the console can be read.
+
+| Method | Path                                    | Purpose                                                                                                                                                 |
+| ------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/servers/import/upload`                | Streams a zip body to the panel and returns `201 {upload_id, size_bytes}`. Uploads are dropped after 24 hours or once they are imported. Max 16 GiB.   |
+| GET    | `/servers/import/{upload_id}/entries`   | Folders in the archive that look like a server: `[{path, files}]`, for choosing `internal_path`. `path` is empty for the top level.                     |
+
+## Providers
+
+| Method | Path                             | Purpose                                                                                                        |
+| ------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| GET    | `/providers`                     | `[{id, name, kind, summary, default_port, needs_java}]`. `vanilla`, `paper`, `purpur`, `fabric`, `neoforge`, `bedrock`. |
+| GET    | `/providers/{provider}/versions` | `[{id, label, stable}]`, newest first. `503 UNAVAILABLE` when the upstream service cannot be reached.          |
+
+Both require `CREATE_SERVER`. Version lists are fetched from upstream and held for ten minutes.
+Mojang publishes only the current Bedrock server, so that provider lists the release and the
+preview; anything older has to arrive as a `url` or a `zip`.
+
 ## Files, backups, schedules, webhooks
 
 | Method           | Path                                                     | Purpose                                                                                                                                                                                                                                                  |
@@ -145,8 +211,6 @@ A server object is flat and honest about what is derived:
 | GET/PATCH | `/panel/settings`                                              | Panel configuration, grouped by section.                     |
 | GET       | `/panel/audit?limit=&before=`                                  | Audit entries, newest first.                                 |
 | GET       | `/panel/java`                                                  | Java runtimes found on the host.                             |
-| GET       | `/providers`                                                   | Installable server kinds.                                    |
-| GET       | `/providers/{provider}/versions`                               | Versions for one provider, newest first.                     |
 | GET/POST  | `/users`, GET/PATCH/DELETE `/users/{id}`                       | User administration.                                         |
 | GET/POST  | `/roles`, GET/PATCH/DELETE `/roles/{id}`                       | Roles and their per-server permissions.                      |
 | GET/POST  | `/users/{id}/api-keys`, DELETE `/users/{id}/api-keys/{key_id}` | API keys. The token is shown once, on create.                |

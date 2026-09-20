@@ -12,6 +12,7 @@
 <script lang="ts">
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 	import PlayIcon from '@lucide/svelte/icons/play';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import SunIcon from '@lucide/svelte/icons/sun';
 	import MoonIcon from '@lucide/svelte/icons/moon';
@@ -70,6 +71,15 @@
 				<LayoutGridIcon />
 				<span>{t('nav.overview')}</span>
 			</Command.Item>
+			{#if session.can('CREATE_SERVER')}
+				<Command.Item
+					value="new server create"
+					onSelect={() => run(() => goto(resolve('/servers/new')))}
+				>
+					<PlusIcon />
+					<span>{t('nav.newServer')}</span>
+				</Command.Item>
+			{/if}
 		</Command.Group>
 
 		{#if servers.list.some((server) => server.permissions.includes('COMMANDS'))}

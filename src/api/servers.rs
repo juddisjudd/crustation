@@ -1,26 +1,35 @@
 use std::path::PathBuf;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{
     Json, Router,
     routing::{get, post},
 };
 use chrono::Utc;
+use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::FromRow;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::auth::Identity;
-use crate::error::{ApiError, ApiResult, Done, Ok as OkJson};
-use crate::perms::Server as ServerPerm;
+use crate::error::{ApiError, ApiResult, Created, Done, Ok as OkJson};
+use crate::install::{self, Job};
+use crate::perms::{Global, Server as ServerPerm};
 use crate::properties::{self, Properties};
+use crate::providers;
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(list))
+        .route("/", get(list).post(create))
+        .route(
+            "/import/upload",
+            post(upload).layer(DefaultBodyLimit::disable()),
+        )
+        .route("/import/{upload_id}/entries", get(entries))
         .route("/{id}", get(detail).patch(update).delete(remove))
         .route("/{id}/action", post(action))
         .route("/{id}/command", post(command))
@@ -184,6 +193,387 @@ async fn list(identity: Identity, State(state): State<AppState>) -> ApiResult<im
         out.push(server_json(&state, &row, names).await);
     }
     Ok(OkJson(out))
+}
+
+#[derive(Deserialize)]
+struct Create {
+    name: String,
+    host: Option<String>,
+    port: Option<i64>,
+    min_memory_mb: Option<i64>,
+    max_memory_mb: Option<i64>,
+    java_binary: Option<String>,
+    #[serde(default)]
+    java_flags: String,
+    #[serde(default)]
+    autostart: bool,
+    #[serde(default)]
+    agree_to_eula: bool,
+    source: SourceBody,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum SourceBody {
+    Provider {
+        provider: String,
+        version: String,
+    },
+    Url {
+        kind: String,
+        url: String,
+        executable: Option<String>,
+    },
+    Zip {
+        kind: String,
+        upload_id: String,
+        #[serde(default)]
+        internal_path: String,
+        executable: Option<String>,
+    },
+    Folder {
+        kind: String,
+        path: String,
+        executable: Option<String>,
+    },
+}
+
+/// Inserts the row, then does the downloading in the background. The interface
+/// follows along on the server's `install` events.
+async fn create(
+    identity: Identity,
+    State(state): State<AppState>,
+    Json(body): Json<Create>,
+) -> ApiResult<impl IntoResponse> {
+    identity.require_global(Global::CreateServer)?;
+
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return Err(ApiError::field("name", "Give the server a name."));
+    }
+
+    let id = Uuid::new_v4();
+    let directory = state.config.server_dir(&id);
+
+    let (kind, source) = match body.source {
+        SourceBody::Provider { provider, version } => {
+            let info = providers::find(&provider)
+                .ok_or_else(|| ApiError::field("source.provider", "No provider by that name."))?;
+            if version.trim().is_empty() {
+                return Err(ApiError::field("source.version", "Choose a version."));
+            }
+            (
+                info.kind.to_string(),
+                install::Source::Provider { provider, version },
+            )
+        }
+        SourceBody::Url {
+            kind,
+            url,
+            executable,
+        } => {
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err(ApiError::field(
+                    "source.url",
+                    "Paste an http or https link.",
+                ));
+            }
+            (
+                checked_kind(&kind)?,
+                install::Source::Url { url, executable },
+            )
+        }
+        SourceBody::Zip {
+            kind,
+            upload_id,
+            internal_path,
+            executable,
+        } => {
+            let archive = upload_path(&state, &upload_id)?;
+            if !tokio::fs::try_exists(&archive).await.unwrap_or(false) {
+                return Err(ApiError::field(
+                    "source.upload_id",
+                    "That upload has expired. Send the archive again.",
+                ));
+            }
+            (
+                checked_kind(&kind)?,
+                install::Source::Zip {
+                    archive,
+                    internal_path,
+                    executable,
+                },
+            )
+        }
+        SourceBody::Folder {
+            kind,
+            path,
+            executable,
+        } => {
+            // Reading any folder on the host is more than CREATE_SERVER should grant.
+            if !identity.is_admin() {
+                return Err(ApiError::forbidden(
+                    "Only an administrator can import a folder from this host.",
+                ));
+            }
+            let path = PathBuf::from(path);
+            let is_directory = tokio::fs::metadata(&path)
+                .await
+                .map(|data| data.is_dir())
+                .unwrap_or(false);
+            if !is_directory {
+                return Err(ApiError::field(
+                    "source.path",
+                    "There is no folder at that path on this host.",
+                ));
+            }
+            (
+                checked_kind(&kind)?,
+                install::Source::Folder { path, executable },
+            )
+        }
+    };
+
+    if !body.agree_to_eula {
+        return Err(ApiError::field(
+            "agree_to_eula",
+            "Accept the Minecraft end user licence agreement to continue.",
+        ));
+    }
+
+    let port = body.port.unwrap_or_else(|| default_port(&kind));
+    if !(1..=65535).contains(&port) {
+        return Err(ApiError::field("port", "Pick a port between 1 and 65535."));
+    }
+
+    let min_memory_mb = body.min_memory_mb.unwrap_or(1024);
+    let max_memory_mb = body.max_memory_mb.unwrap_or(4096);
+    if min_memory_mb < 128 {
+        return Err(ApiError::field(
+            "min_memory_mb",
+            "Give the server at least 128 MB.",
+        ));
+    }
+    if min_memory_mb > max_memory_mb {
+        return Err(ApiError::field(
+            "min_memory_mb",
+            "Minimum memory cannot exceed the maximum.",
+        ));
+    }
+
+    let host = body.host.unwrap_or_else(|| "0.0.0.0".to_string());
+    // Bedrock logs to its console only; Java keeps a log file worth reading.
+    let log_path = match kind.as_str() {
+        "minecraft_java" => "logs/latest.log",
+        _ => "",
+    };
+    let now = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO servers (id, name, kind, directory, java_binary, min_memory_mb,
+             max_memory_mb, java_flags, host, port, autostart, log_path, created_by,
+             created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id.to_string())
+    .bind(&name)
+    .bind(&kind)
+    .bind(directory.to_string_lossy().as_ref())
+    .bind(&body.java_binary)
+    .bind(min_memory_mb)
+    .bind(max_memory_mb)
+    .bind(&body.java_flags)
+    .bind(&host)
+    .bind(port)
+    .bind(body.autostart)
+    .bind(log_path)
+    .bind(&identity.user.id)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await?;
+
+    install::spawn(
+        state.clone(),
+        Job {
+            id,
+            name: name.clone(),
+            kind,
+            directory,
+            source,
+            port,
+            java_binary: body.java_binary,
+            min_memory_mb,
+            max_memory_mb,
+            java_flags: body.java_flags,
+            agree_to_eula: body.agree_to_eula,
+        },
+    );
+
+    crate::api::audit(
+        &state,
+        Some(&identity.user),
+        Some(id),
+        "created a server",
+        Some(&name),
+    )
+    .await;
+    state.events.publish(
+        crate::events::Topic::Servers,
+        "created",
+        json!({ "server_id": id }),
+    );
+
+    Ok(Created(json!({ "id": id })))
+}
+
+fn checked_kind(kind: &str) -> Result<String, ApiError> {
+    match kind {
+        "minecraft_java" | "minecraft_bedrock" => Ok(kind.to_string()),
+        _ => Err(ApiError::field("source.kind", "Choose Java or Bedrock.")),
+    }
+}
+
+fn default_port(kind: &str) -> i64 {
+    match kind {
+        "minecraft_bedrock" => 19132,
+        _ => 25565,
+    }
+}
+
+/// Where an uploaded archive waits until it is turned into a server. It sits on
+/// the servers volume, which is the one with room for it.
+fn uploads_dir(state: &AppState) -> PathBuf {
+    state.config.paths.servers.join(".uploads")
+}
+
+/// Parsing the id as a UUID is also what keeps the name from escaping the folder.
+fn upload_path(state: &AppState, upload_id: &str) -> Result<PathBuf, ApiError> {
+    let id = Uuid::parse_str(upload_id).map_err(|_| ApiError::not_found("Upload"))?;
+    Ok(uploads_dir(state).join(format!("{id}.zip")))
+}
+
+/// Past any real server archive, and still a bound on a runaway upload.
+const MAX_UPLOAD_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+async fn upload(
+    identity: Identity,
+    State(state): State<AppState>,
+    body: axum::body::Body,
+) -> ApiResult<impl IntoResponse> {
+    identity.require_global(Global::CreateServer)?;
+
+    let directory = uploads_dir(&state);
+    tokio::fs::create_dir_all(&directory).await?;
+    sweep(&directory).await;
+
+    let upload_id = Uuid::new_v4();
+    let target = directory.join(format!("{upload_id}.zip"));
+    let mut file = tokio::fs::File::create(&target).await?;
+
+    let mut written: u64 = 0;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|error| ApiError::validation(format!("Upload failed: {error}")))?;
+        written += chunk.len() as u64;
+        if written > MAX_UPLOAD_BYTES {
+            drop(file);
+            tokio::fs::remove_file(&target).await.ok();
+            return Err(ApiError::validation("That archive is too large to import."));
+        }
+        file.write_all(&chunk).await?;
+    }
+    file.flush().await?;
+    drop(file);
+
+    if written == 0 {
+        tokio::fs::remove_file(&target).await.ok();
+        return Err(ApiError::validation("The upload was empty."));
+    }
+
+    Ok(Created(
+        json!({ "upload_id": upload_id, "size_bytes": written }),
+    ))
+}
+
+/// Drops uploads nobody turned into a server.
+async fn sweep(directory: &std::path::Path) {
+    let Ok(mut entries) = tokio::fs::read_dir(directory).await else {
+        return;
+    };
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let stale = entry
+            .metadata()
+            .await
+            .ok()
+            .and_then(|data| data.modified().ok())
+            .is_some_and(|modified| modified < cutoff);
+        if stale {
+            tokio::fs::remove_file(entry.path()).await.ok();
+        }
+    }
+}
+
+/// Folders inside an uploaded archive that look like a server, so the operator can
+/// say which one to import.
+async fn entries(
+    identity: Identity,
+    State(state): State<AppState>,
+    Path(upload_id): Path<String>,
+) -> ApiResult<impl IntoResponse> {
+    identity.require_global(Global::CreateServer)?;
+    let archive = upload_path(&state, &upload_id)?;
+    if !tokio::fs::try_exists(&archive).await.unwrap_or(false) {
+        return Err(ApiError::not_found("Upload"));
+    }
+
+    let roots = tokio::task::spawn_blocking(move || read_roots(&archive))
+        .await
+        .map_err(|error| ApiError::Internal(error.into()))?
+        .map_err(ApiError::Internal)?;
+    Ok(OkJson(roots))
+}
+
+fn read_roots(archive: &std::path::Path) -> anyhow::Result<Vec<Value>> {
+    use std::collections::BTreeMap;
+
+    let file = std::fs::File::open(archive)?;
+    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file))?;
+    let mut roots: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for index in 0..zip.len() {
+        let entry = zip.by_index(index)?;
+        if entry.is_dir() {
+            continue;
+        }
+        let Some(path) = entry.enclosed_name() else {
+            continue;
+        };
+        let Some(name) = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+        else {
+            continue;
+        };
+        let tells_a_server = name.ends_with(".jar")
+            || name == "server.properties"
+            || name.starts_with("bedrock_server");
+        if !tells_a_server {
+            continue;
+        }
+        let parent = path
+            .parent()
+            .map(|parent| parent.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        roots.entry(parent).or_default().push(name);
+    }
+
+    Ok(roots
+        .into_iter()
+        .map(|(path, files)| json!({ "path": path, "files": files }))
+        .collect())
 }
 
 pub async fn load(state: &AppState, id: Uuid) -> Result<ServerRow, ApiError> {

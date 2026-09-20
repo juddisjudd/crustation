@@ -31,6 +31,17 @@ their stdin/stdout, which keeps the console honest and the deployment a single c
   stop sends the configured stop command, waits `shutdown_timeout`, then escalates to a kill.
 - **Crash handling.** An exit that was not requested, and whose code is not in `ignored_exits`,
   marks the server crashed and, when crash detection is on, restarts it with a backoff.
+- **Installs.** Creating a server writes the row and returns; a background task then resolves the
+  download from the provider's own API, streams it to disk while checking the published hash,
+  unpacks or runs an installer where the flavour needs one, writes `eula.txt` and the port, and
+  finally stores the start command.
+- **Choosing a JVM.** The providers report what each version asks of Java, and the install picks a
+  runtime out of those `java` discovers rather than leaving the command saying `java`. Paper states
+  a floor it supports anything above, so it gets the newest installed; Mojang names the runtime a
+  release was built for, so those stay close to it. Servers also start on the flags their project
+  recommends, widened to Aikar's larger G1 regions once the heap passes 12 GB. Progress goes out as `install` events and as console lines, so
+  the record survives a reload. A failure leaves the row with an empty start command, which the
+  supervisor refuses to launch.
 - **Stats.** A sampler reads process CPU and memory through `sysinfo`, pings the server for
   players, MOTD and version, and writes a row per interval. Charts read a downsampled range.
 - **Events.** A `tokio::sync::broadcast` bus carries typed events. WebSocket connections subscribe
@@ -59,7 +70,7 @@ the resource, and the same check gates the events a WebSocket receives.
 
 ```
 /config     crustation.toml, crustation.db, secrets, certificates
-/servers    <server-id>/ per game server
+/servers    <server-id>/ per game server, plus .uploads/ for archives waiting to be imported
 /backups    <server-id>/ archives
 ```
 

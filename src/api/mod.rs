@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod panel;
+pub mod providers;
 pub mod servers;
 pub mod ws;
 
@@ -15,6 +16,7 @@ pub fn router() -> Router<AppState> {
         .nest("/auth", auth::routes())
         .nest("/servers", servers::routes())
         .nest("/panel", panel::routes())
+        .nest("/providers", providers::routes())
         .route("/health", get(health))
 }
 

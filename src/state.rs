@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::db::Db;
 use crate::events::Events;
+use crate::providers::Catalogue;
 use crate::supervisor::Supervisor;
 
 pub struct Inner {
@@ -12,6 +13,8 @@ pub struct Inner {
     pub db: Db,
     pub events: Events,
     pub supervisor: Supervisor,
+    pub http: reqwest::Client,
+    pub catalogue: Catalogue,
     /// Signing key for session cookies, generated once and kept in the database.
     pub session_secret: Vec<u8>,
     pub started_at: chrono::DateTime<chrono::Utc>,
@@ -30,6 +33,8 @@ impl AppState {
             db,
             events,
             supervisor,
+            http: http_client()?,
+            catalogue: Catalogue::default(),
             session_secret,
             started_at: chrono::Utc::now(),
         })))
@@ -42,6 +47,16 @@ impl std::ops::Deref for AppState {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+/// Mojang's CDN turns away anything that does not look like a browser, so the
+/// Bedrock download only arrives under a browser user agent.
+fn http_client() -> Result<reqwest::Client> {
+    const AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    Ok(reqwest::Client::builder()
+        .user_agent(AGENT)
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .build()?)
 }
 
 async fn load_or_create_secret(db: &Db) -> Result<Vec<u8>> {

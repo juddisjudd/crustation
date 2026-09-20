@@ -1,5 +1,6 @@
 <script lang="ts">
 	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -69,6 +70,18 @@
 		<Sidebar.Group>
 			<Sidebar.GroupLabel>{t('nav.servers')}</Sidebar.GroupLabel>
 			<Sidebar.Menu>
+				{#if session.can('CREATE_SERVER')}
+					{@const href = resolve('/servers/new')}
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive(href)} tooltipContent={t('nav.newServer')}>
+							{#snippet child({ props })}
+								<a {href} {...props}>
+									<PlusIcon /><span>{t('nav.newServer')}</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+				{/if}
 				{#each servers.list as server (server.id)}
 					{@const href = resolve(`/servers/${server.id}`)}
 					<Sidebar.MenuItem>
