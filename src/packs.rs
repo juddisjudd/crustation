@@ -7,7 +7,7 @@
 //! manifest says its modules are. Java's equivalent is a `pack.mcmeta`.
 
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -57,6 +57,9 @@ impl Sort {
 pub struct Manifest {
     pub uuid: String,
     pub name: String,
+    /// The header's name as written, key or not, for `display_name` to read.
+    #[serde(skip)]
+    pub title: String,
     pub version: Vec<i64>,
     pub sort: Sort,
 }
@@ -100,11 +103,14 @@ pub fn read_manifest(text: &str) -> Option<Manifest> {
         .filter_map(|module| module.get("type")?.as_str())
         .find_map(sort_of)?;
 
-    // `pack.name` is a key looked up in the pack's own language file, not a
-    // name, so it is no better than the file it arrived in.
-    let name = header
+    let title = header
         .get("name")
         .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    // `pack.name` is a key looked up in the pack's own language file, not a
+    // name, so it is no better than the file it arrived in.
+    let name = Some(title.as_str())
         .filter(|found| !found.starts_with("pack.") && !found.trim().is_empty())
         .unwrap_or_default()
         .to_string();
@@ -112,9 +118,85 @@ pub fn read_manifest(text: &str) -> Option<Manifest> {
     Some(Manifest {
         uuid,
         name,
+        title,
         version: header.get("version").map(version_of).unwrap_or_default(),
         sort,
     })
+}
+
+/// What to call a pack on screen: the header's name, or what the pack's own
+/// language file says when the header holds a key, without the game's `§`
+/// codes. The folder when neither gives anything. `texts` is where to look a
+/// key up; without it a key counts as no name.
+pub fn display_name(title: &str, texts: Option<&Path>, folder: &str) -> String {
+    let named = if title.starts_with("pack.") {
+        texts
+            .and_then(|pack| localized(pack, title))
+            .unwrap_or_default()
+    } else {
+        title.to_string()
+    };
+    let shown = without_formatting(&named);
+    if shown.is_empty() {
+        folder.to_string()
+    } else {
+        shown
+    }
+}
+
+/// Takes out the `§` codes the game reads as colour and style, which mean
+/// nothing as text.
+pub fn without_formatting(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(one) = chars.next() {
+        if one == '§' {
+            chars.next();
+        } else {
+            out.push(one);
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Looks a key up in `texts/en_US.lang`, or the first language the pack ships
+/// when it has no English. Read a line at a time, since `pack.name` sits near
+/// the top and some language files run to megabytes.
+fn localized(pack: &Path, key: &str) -> Option<String> {
+    let texts = pack.join("texts");
+    let english = texts.join("en_US.lang");
+    let file = if english.is_file() {
+        english
+    } else {
+        let mut others: Vec<PathBuf> = std::fs::read_dir(&texts)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|one| one == "lang"))
+            .collect();
+        others.sort();
+        others.into_iter().next()?
+    };
+    let reader = std::io::BufReader::new(std::fs::File::open(file).ok()?);
+    reader
+        .lines()
+        .map_while(std::result::Result::ok)
+        .find_map(|line| lang_value(&line, key))
+}
+
+/// The value on one `.lang` line, when that line sets `key`. A line starting
+/// `#` is a comment, and a tab followed by `#` ends a value early.
+fn lang_value(line: &str, key: &str) -> Option<String> {
+    let line = line.trim_start_matches('\u{feff}');
+    if line.starts_with('#') {
+        return None;
+    }
+    let (found, value) = line.split_once('=')?;
+    if found.trim() != key {
+        return None;
+    }
+    let value = value.split_once("\t#").map_or(value, |(kept, _)| kept);
+    Some(value.trim().to_string())
 }
 
 /// Reads a Java `pack.mcmeta`, which says only that this is a pack at all.
@@ -389,11 +471,7 @@ fn unpack_into(
                 .is_ok();
 
         found.push(Installed {
-            name: if manifest.name.is_empty() {
-                folder.clone()
-            } else {
-                manifest.name.clone()
-            },
+            name: display_name(&manifest.title, Some(&into), &folder),
             sort: manifest.sort,
             path: relative(manifest.sort.folder(level).join(&folder)),
             uuid: Some(manifest.uuid),
@@ -612,12 +690,16 @@ pub fn installed(server: &Path, level: &str, bedrock: bool) -> Vec<Installed> {
                 .as_deref()
                 .and_then(read_manifest);
             let uuid = manifest.as_ref().map(|one| one.uuid.clone());
+            let stock = bedrock && is_stock(&name);
+            let path = entry.path();
             out.push(Installed {
-                name: manifest
-                    .as_ref()
-                    .map(|one| one.name.clone())
-                    .filter(|one| !one.is_empty())
-                    .unwrap_or_else(|| name.clone()),
+                // Every stock pack would read "Vanilla Resource Pack"; the
+                // folder says which one it is.
+                name: display_name(
+                    manifest.as_ref().map_or("", |one| one.title.as_str()),
+                    (!stock).then_some(path.as_path()),
+                    &name,
+                ),
                 sort: *sort,
                 path: relative(sort.folder(level).join(&name)),
                 activated: match &uuid {
@@ -626,7 +708,7 @@ pub fn installed(server: &Path, level: &str, bedrock: bool) -> Vec<Installed> {
                 },
                 uuid,
                 version: manifest.map(|one| one.version).unwrap_or_default(),
-                stock: bedrock && is_stock(&name),
+                stock,
             });
         }
     }
@@ -867,6 +949,80 @@ mod tests {
     fn a_script_module_is_still_a_behaviour_pack() {
         let text = BEHAVIOUR.replace("\"type\": \"data\"", "\"type\": \"script\"");
         assert_eq!(read_manifest(&text).expect("read").sort, Sort::Behaviour);
+    }
+
+    #[test]
+    fn colour_codes_come_out_of_a_name() {
+        assert_eq!(without_formatting("§aOP Toolsmith"), "OP Toolsmith");
+        assert_eq!(
+            without_formatting("§dMultiplayer Waypoint System §r"),
+            "Multiplayer Waypoint System"
+        );
+        assert_eq!(without_formatting("trailing§"), "trailing");
+        assert_eq!(without_formatting("Plain"), "Plain");
+    }
+
+    #[test]
+    fn a_lang_line_gives_up_only_the_key_asked_for() {
+        assert_eq!(
+            lang_value("pack.name=Health Bars", "pack.name").as_deref(),
+            Some("Health Bars")
+        );
+        assert_eq!(
+            lang_value("pack.name=Health Bars\t## the title", "pack.name").as_deref(),
+            Some("Health Bars")
+        );
+        assert_eq!(
+            lang_value("\u{feff}pack.name=First", "pack.name").as_deref(),
+            Some("First")
+        );
+        assert!(lang_value("## pack.name=commented", "pack.name").is_none());
+        assert!(lang_value("pack.description=Other", "pack.name").is_none());
+    }
+
+    fn pack_with_lang(label: &str, lang: Option<(&str, &str)>) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("crustation-packs-{label}"));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(root.join("texts")).expect("texts");
+        if let Some((file, body)) = lang {
+            std::fs::write(root.join("texts").join(file), body).expect("lang");
+        }
+        root
+    }
+
+    #[test]
+    fn a_key_is_looked_up_and_its_colour_taken_out() {
+        let pack = pack_with_lang(
+            "keyed",
+            Some((
+                "en_US.lang",
+                "pack.name=§aHealth Bars§r\r\npack.description=x\r\n",
+            )),
+        );
+        assert_eq!(display_name("pack.name", Some(&pack), "bp"), "Health Bars");
+        std::fs::remove_dir_all(&pack).ok();
+    }
+
+    #[test]
+    fn a_pack_with_no_english_is_read_in_the_language_it_has() {
+        let pack = pack_with_lang("french", Some(("fr_FR.lang", "pack.name=Barres de vie\n")));
+        assert_eq!(
+            display_name("pack.name", Some(&pack), "bp"),
+            "Barres de vie"
+        );
+        std::fs::remove_dir_all(&pack).ok();
+    }
+
+    #[test]
+    fn a_key_nobody_answers_falls_back_to_the_folder() {
+        let pack = pack_with_lang("unanswered", None);
+        assert_eq!(display_name("pack.name", Some(&pack), "bp"), "bp");
+        assert_eq!(
+            display_name("pack.name", None, "vanilla_1.21.0"),
+            "vanilla_1.21.0"
+        );
+        assert_eq!(display_name("", None, "folder"), "folder");
+        std::fs::remove_dir_all(&pack).ok();
     }
 
     #[test]

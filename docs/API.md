@@ -355,6 +355,12 @@ nested inside it, and both shapes are handled.
 - `missing` is the other half of that: ids the world's lists name with no pack behind them, which
   is exactly what the server reports once at startup and then never again. `DELETE` on the same
   path takes one out of the list; the pack's own folder, if it has one, is untouched.
+- `name` in a listing is for showing, not matching. The game's `§` colour codes are taken out,
+  and a header that holds a key such as `pack.name` is looked up in the pack's
+  `texts/en_US.lang`, or the first language it ships. The folder name stands in when neither
+  says anything, and always for the stock packs, which would otherwise all read the same. The
+  folder on disk is still named from the header as written, so an update finds the folder it
+  replaced.
 - `activate` also writes the pack into `worlds/<level-name>/world_behavior_packs.json` or
   `world_resource_packs.json`, because Bedrock ignores a pack that is only sitting in the folder.
   The list is **added to, never replaced**: the file is read, the new pack appended, and every
