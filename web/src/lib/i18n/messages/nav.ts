@@ -20,6 +20,7 @@ export const nav = {
 	noServers: 'No servers yet.',
 	tabs: {
 		overview: 'Overview',
-		console: 'Console'
+		console: 'Console',
+		settings: 'Settings'
 	}
 } as const;

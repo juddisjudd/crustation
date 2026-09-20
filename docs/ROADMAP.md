@@ -35,39 +35,38 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   says. Servers the panel did not start answer too. Bedrock only listens for that ping under
   `transport=raknet`, which the creation form now offers, because Mojang ships `nethernet` and it
   opens no port at all.
+- A `server.properties` editor on each server: 28 Java keys and 22 Bedrock ones as a typed form
+  with help and validation, and every other key in the file as plain text, so nothing is hidden
+  and nothing is out of reach. The keys the panel writes itself are shown but locked.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
 ## Next
 
-1. **server.properties editor.** A typed form with descriptions, validation, a diff before apply,
-   and a badge on the keys that need a restart. Same file on Java and Bedrock, different keys.
-   The catalogue and the checking already exist, from the settings the creation form offers; this
-   is the rest of the keys, on a server that is already running.
-2. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
-3. **Backups.** Configs, runs with progress, retention, restore, download, excludes. Taken
+1. **Files.** List, read, write, rename, move, copy, delete, upload with progress, unzip, download.
+2. **Backups.** Configs, runs with progress, retention, restore, download, excludes. Taken
    automatically before anything destructive: version changes, content installs, restores.
-4. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
+3. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
    restart broadcasts a warning ladder in game before it stops the server.
-5. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
+4. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
    `banned-ips.json` on Java, `allowlist.json` and `permissions.json` on Bedrock (keyed by XUID),
    all as editable tables with username to UUID lookup and player heads.
-6. **Users and roles.** Administration screens and their endpoints, plus invite links that grant a
+5. **Users and roles.** Administration screens and their endpoints, plus invite links that grant a
    scoped per-server role, so an owner can hand a friend console-only access.
-7. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
+6. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
    rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
    Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
    and the End. Bedrock keeps its experiment toggles, Beta APIs among them, in the world's
    `level.dat` rather than in `server.properties`, so turning those on means reading and writing
    Bedrock's little-endian NBT. Java needs none of that: its experiments arrive as feature packs
    named in `initial-enabled-packs`, which server creation already offers.
-8. **Guarded upgrades.** Back up, swap the jar, start, and roll back on its own if the server never
+7. **Guarded upgrades.** Back up, swap the jar, start, and roll back on its own if the server never
    reaches ready.
-9. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
+8. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
    failed-backup notifications, and browser push through the manifest the interface already ships.
-10. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
-    RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
-11. **Public status page**, panel settings, branding.
+9. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
+   RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
+10. **Public status page**, panel settings, branding.
 
 ## Alongside
 

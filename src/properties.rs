@@ -90,6 +90,17 @@ impl Properties {
         });
     }
 
+    /// Every entry in the file, in the order it appears.
+    pub fn entries(&self) -> Vec<(String, String)> {
+        self.lines
+            .iter()
+            .filter_map(|line| match line {
+                Line::Entry { key, value } => Some((key.clone(), unescape(value))),
+                Line::Verbatim(_) => None,
+            })
+            .collect()
+    }
+
     pub async fn save(&self) -> Result<()> {
         let separator = if self.crlf { "\r\n" } else { "\n" };
         let mut out = String::new();
@@ -347,6 +358,124 @@ const JAVA: &[Known] = &[
         default: "false",
         kind: Kind::Flag,
     },
+    Known {
+        key: "generate-structures",
+        label: "Generate structures",
+        help: "Villages, temples and the rest.",
+        group: "World",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "max-world-size",
+        label: "World radius",
+        help: "Blocks from the centre the world may grow to.",
+        group: "World",
+        default: "29999984",
+        kind: Kind::Number {
+            min: 1,
+            max: 29_999_984,
+        },
+    },
+    Known {
+        key: "enforce-whitelist",
+        label: "Kick players off the allow list",
+        help: "Removes players already on the server when they are taken off the list.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "player-idle-timeout",
+        label: "Kick idle players after",
+        help: "Minutes. 0 never kicks them.",
+        group: "Players",
+        default: "0",
+        kind: Kind::Number { min: 0, max: 1440 },
+    },
+    Known {
+        key: "op-permission-level",
+        label: "Operator level",
+        help: "1 bypasses spawn protection, 4 allows every command.",
+        group: "Players",
+        default: "4",
+        kind: Kind::Number { min: 0, max: 4 },
+    },
+    Known {
+        key: "hide-online-players",
+        label: "Hide the player list",
+        help: "Keeps names out of the reply the server list gets.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "enforce-secure-profile",
+        label: "Require signed chat",
+        help: "Turning this off lets players without a Mojang chat signature join.",
+        group: "Players",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "prevent-proxy-connections",
+        label: "Block proxied connections",
+        help: "Refuses players whose account region does not match their address.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "resource-pack",
+        label: "Resource pack",
+        help: "A URL the client downloads on join.",
+        group: "Resource pack",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "require-resource-pack",
+        label: "Require the resource pack",
+        help: "Players who refuse it are kicked.",
+        group: "Resource pack",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "pause-when-empty-seconds",
+        label: "Pause when empty after",
+        help: "Seconds with nobody on before the server stops ticking. 0 keeps it running.",
+        group: "Server",
+        default: "60",
+        kind: Kind::Number { min: 0, max: 86400 },
+    },
+    Known {
+        key: "network-compression-threshold",
+        label: "Compress packets over",
+        help: "Bytes. -1 turns compression off.",
+        group: "Server",
+        default: "256",
+        kind: Kind::Number {
+            min: -1,
+            max: 65536,
+        },
+    },
+    Known {
+        key: "entity-broadcast-range-percentage",
+        label: "Entity range",
+        help: "Percent of the normal distance at which entities are sent to players.",
+        group: "Server",
+        default: "100",
+        kind: Kind::Number { min: 10, max: 1000 },
+    },
+    Known {
+        key: "sync-chunk-writes",
+        label: "Write chunks synchronously",
+        help: "Safer on a crash, slower on some disks.",
+        group: "Server",
+        default: "true",
+        kind: Kind::Flag,
+    },
 ];
 
 const BEDROCK: &[Known] = &[
@@ -464,6 +593,82 @@ const BEDROCK: &[Known] = &[
         default: "30",
         kind: Kind::Number { min: 0, max: 1440 },
     },
+    Known {
+        key: "force-gamemode",
+        label: "Force the game mode",
+        help: "Puts returning players back into the server's mode.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "chat-restriction",
+        label: "Chat",
+        help: "Dropped silently discards messages; Disabled tells the player.",
+        group: "Players",
+        default: "None",
+        kind: Kind::Choice {
+            options: &["None", "Dropped", "Disabled"],
+        },
+    },
+    Known {
+        key: "disable-player-interaction",
+        label: "Stop players interacting",
+        help: "They can still move and look around.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "disable-custom-skins",
+        label: "Block custom skins",
+        help: "Players fall back to a standard skin.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "texturepack-required",
+        label: "Require the resource pack",
+        help: "Players who refuse the server's pack cannot join.",
+        group: "Resource pack",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "enable-lan-visibility",
+        label: "Show on the local network",
+        help: "Puts the server in the in-game list for machines on the same network.",
+        group: "Server",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "max-threads",
+        label: "Threads",
+        help: "0 lets the server use as many as it wants.",
+        group: "Server",
+        default: "8",
+        kind: Kind::Number { min: 0, max: 256 },
+    },
+    Known {
+        key: "client-side-chunk-generation-enabled",
+        label: "Let clients build chunks",
+        help: "Clients draw terrain ahead of the server sending it.",
+        group: "Server",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "compression-algorithm",
+        label: "Compression",
+        help: "snappy costs less CPU, zlib less bandwidth.",
+        group: "Server",
+        default: "zlib",
+        kind: Kind::Choice {
+            options: &["zlib", "snappy"],
+        },
+    },
 ];
 
 /// What may be set when a server of this kind is made. The panel writes the port
@@ -477,6 +682,38 @@ pub fn catalogue(kind: &str) -> &'static [Known] {
 
 pub fn known(kind: &str, key: &str) -> Option<&'static Known> {
     catalogue(kind).iter().find(|entry| entry.key == key)
+}
+
+/// Keys the panel writes itself. Editing them from outside would put the server
+/// row and the file out of step, or hand back the RCON password.
+pub const RESERVED: [&str; 5] = [
+    "server-port",
+    "server-portv6",
+    "enable-rcon",
+    "rcon.port",
+    "rcon.password",
+];
+
+pub fn is_reserved(key: &str) -> bool {
+    RESERVED.contains(&key)
+}
+
+/// A key the catalogue says nothing about. The file format is the only rule
+/// left, so hold it to that and no more.
+pub fn check_raw(key: &str, value: &str) -> std::result::Result<String, String> {
+    if key.trim().is_empty() {
+        return Err("Give the setting a name.".into());
+    }
+    if key.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
+        return Err("A name cannot hold spaces or control characters.".into());
+    }
+    if value.chars().any(|ch| ch == '\n' || ch == '\r') {
+        return Err("A value has to stay on one line.".into());
+    }
+    if value.chars().count() > 1024 {
+        return Err("That is too long.".into());
+    }
+    Ok(value.to_string())
 }
 
 /// Checks one value against what the key accepts, and returns it as the file

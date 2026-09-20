@@ -190,6 +190,21 @@ Both require `CREATE_SERVER`. Version lists are fetched from upstream and held f
 
 ## Server settings
 
+| Method | Path                         | Purpose                                                                                                   |
+| ------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| GET    | `/properties?kind=`          | The catalogue for a kind of server, before one exists. Any signed-in caller.                              |
+| GET    | `/servers/{id}/properties`   | One server's file: `{exists, settings, other}`. Requires `CONFIG`.                                        |
+| PUT    | `/servers/{id}/properties`   | `{settings: {key: value}}`, merged in. Returns `{changed, restart_required}`. Requires `CONFIG`.          |
+
+On a read, `settings` is the catalogue with each entry's current `value` and a `set` flag saying
+whether the file names it at all; when `set` is false the server's own default applies. `other` is
+every remaining key in the file, each with `managed` marking the ones the panel writes itself.
+
+A write merges: keys left out are untouched. Keys in the catalogue are checked against it, keys
+outside it are accepted as text so the rest of the file stays editable, and the reserved keys
+(`server-port`, `server-portv6`, `enable-rcon`, `rcon.port`, `rcon.password`) are refused. A
+single bad key fails the whole request before anything reaches disk.
+
 `GET /properties?kind=minecraft_java` returns the `server.properties` keys the panel knows how to
 present, for any signed-in caller. `404` for a kind it does not know.
 
