@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::db::Db;
 use crate::events::Events;
+use crate::ping::Statuses;
 use crate::providers::Catalogue;
 use crate::supervisor::Supervisor;
 
@@ -15,6 +16,8 @@ pub struct Inner {
     pub supervisor: Supervisor,
     pub http: reqwest::Client,
     pub catalogue: Catalogue,
+    /// What each server last said about itself over the wire.
+    pub statuses: Statuses,
     /// Signing key for session cookies, generated once and kept in the database.
     pub session_secret: Vec<u8>,
     pub started_at: chrono::DateTime<chrono::Utc>,
@@ -35,6 +38,7 @@ impl AppState {
             supervisor,
             http: http_client()?,
             catalogue: Catalogue::default(),
+            statuses: Statuses::default(),
             session_secret,
             started_at: chrono::Utc::now(),
         })))

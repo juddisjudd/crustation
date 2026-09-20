@@ -429,6 +429,18 @@ const BEDROCK: &[Known] = &[
         },
     },
     Known {
+        key: "transport",
+        label: "Transport",
+        help: "Mojang now ships nethernet, which routes through their signalling \
+               service and opens no port. Choose raknet for the classic UDP listener \
+               that lets players connect by address and lets the panel read status.",
+        group: "Server",
+        default: "nethernet",
+        kind: Kind::Choice {
+            options: &["raknet", "nethernet"],
+        },
+    },
+    Known {
         key: "view-distance",
         label: "View distance",
         help: "Chunks sent to each player. Lower costs less memory.",
@@ -596,6 +608,12 @@ mod tests {
         // toggles in the world file, out of reach of server.properties.
         assert!(known("minecraft_java", "initial-enabled-packs").is_some());
         assert!(known("minecraft_bedrock", "initial-enabled-packs").is_none());
+
+        // Only Bedrock chooses a transport, and only raknet opens a port.
+        let transport = known("minecraft_bedrock", "transport").expect("known");
+        assert!(check(transport, "raknet").is_ok());
+        assert!(check(transport, "tcp").is_err());
+        assert!(known("minecraft_java", "transport").is_none());
     }
 
     /// Both editions ship with the list on, which is the opposite of what people

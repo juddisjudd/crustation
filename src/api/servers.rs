@@ -146,8 +146,11 @@ async fn latest_stats(state: &AppState, server_id: &str) -> Value {
 
     let id = Uuid::parse_str(server_id).unwrap_or_default();
     let runtime = state.supervisor.runtime(id).await;
+    // What the server itself last said, which is fresher than the stored sample
+    // and is there even for a server the panel did not start.
+    let live = state.statuses.get(id).await;
 
-    match row {
+    let mut stats = match row {
         Some(stats) => json!({
             "at": stats.at,
             "cpu_percent": stats.cpu_percent,
@@ -165,7 +168,16 @@ async fn latest_stats(state: &AppState, server_id: &str) -> Value {
             "players_max": null,
             "started_at": runtime.started_at,
         }),
+    };
+
+    stats["version"] = json!(live.as_ref().map(|status| status.version.clone()));
+    stats["motd"] = json!(live.as_ref().map(|status| status.motd.clone()));
+    stats["latency_ms"] = json!(live.as_ref().map(|status| status.latency_ms));
+    if let Some(status) = &live {
+        stats["players_online"] = json!(status.players_online);
+        stats["players_max"] = json!(status.players_max);
     }
+    stats
 }
 
 async fn list(identity: Identity, State(state): State<AppState>) -> ApiResult<impl IntoResponse> {
@@ -795,6 +807,7 @@ async fn remove(
         }
     }
 
+    state.statuses.forget(id).await;
     crate::api::audit(
         &state,
         Some(&identity.user),

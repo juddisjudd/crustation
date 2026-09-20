@@ -114,6 +114,11 @@ A server object is flat and honest about what is derived:
 
 `state` is one of `stopped | starting | running | stopping | crashed | installing`.
 
+`stats.motd`, `stats.version`, `stats.latency_ms` and the player counts come from asking the
+server itself: the Server List Ping on Java, RakNet's unconnected ping on Bedrock. They are null
+until it answers, and stay null for a server that never does. A Bedrock server only listens for
+that ping when `transport=raknet`; under Mojang's default of `nethernet` there is no port to ask.
+
 ## Creating a server
 
 `POST /servers` takes the settings and one `source`. Everything but `name`, `agree_to_eula` and

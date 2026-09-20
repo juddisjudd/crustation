@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use chrono::Utc;
 use serde_json::json;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use uuid::Uuid;
 
 use crate::state::AppState;
 
@@ -17,6 +20,10 @@ pub async fn collect(state: AppState) {
 
     loop {
         ticker.tick().await;
+
+        // Every server is asked, not only the ones the panel started, so a server
+        // somebody else launched on that port still shows up.
+        let players = ping_all(&state).await;
 
         let running = state.supervisor.running_ids().await;
         if running.is_empty() {
@@ -49,16 +56,22 @@ pub async fn collect(state: AppState) {
             let memory_percent = memory as f64 / total_memory as f64 * 100.0;
             let at = Utc::now();
 
+            let seen = players.get(&id);
+            let online = seen.map(|status| status.players_online);
+            let max = seen.map(|status| status.players_max);
+
             let result = sqlx::query(
                 "INSERT OR REPLACE INTO server_stats
                  (server_id, at, cpu_percent, memory_bytes, memory_percent, players_online, players_max)
-                 VALUES (?, ?, ?, ?, ?, NULL, NULL)",
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(id.to_string())
             .bind(at.to_rfc3339())
             .bind(cpu)
             .bind(memory as i64)
             .bind(memory_percent)
+            .bind(online)
+            .bind(max)
             .execute(&state.db)
             .await;
 
@@ -74,6 +87,11 @@ pub async fn collect(state: AppState) {
                     "cpu_percent": cpu,
                     "memory_bytes": memory,
                     "memory_percent": memory_percent,
+                    "players_online": online,
+                    "players_max": max,
+                    "version": seen.map(|status| status.version.clone()),
+                    "motd": seen.map(|status| status.motd.clone()),
+                    "latency_ms": seen.map(|status| status.latency_ms),
                 }),
             );
         }
@@ -86,6 +104,36 @@ pub async fn collect(state: AppState) {
             prune(&state).await;
         }
     }
+}
+
+/// Asks every configured server what it is, all at once so one slow reply does
+/// not hold up the tick.
+async fn ping_all(state: &AppState) -> HashMap<Uuid, crate::ping::Status> {
+    let rows: Vec<(String, String, String, i64)> =
+        match sqlx::query_as("SELECT id, kind, host, port FROM servers")
+            .fetch_all(&state.db)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::debug!(%error, "could not list servers to ping");
+                return HashMap::new();
+            }
+        };
+
+    let answers = futures::future::join_all(rows.into_iter().map(|(id, kind, host, port)| {
+        let state = state.clone();
+        async move {
+            let id = Uuid::parse_str(&id).ok()?;
+            let port = u16::try_from(port).ok()?;
+            let status = crate::ping::query(&kind, &host, port).await.ok();
+            state.statuses.record(id, status.clone()).await;
+            Some((id, status?))
+        }
+    }))
+    .await;
+
+    answers.into_iter().flatten().collect()
 }
 
 fn publish_host(state: &AppState, system: &mut System) {

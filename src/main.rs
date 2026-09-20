@@ -7,6 +7,7 @@ mod events;
 mod install;
 mod java;
 mod perms;
+mod ping;
 mod properties;
 mod providers;
 mod rcon;
