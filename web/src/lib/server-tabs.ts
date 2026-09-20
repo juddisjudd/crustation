@@ -10,6 +10,7 @@ export interface ServerTab {
 export const serverTabs: ServerTab[] = [
 	{ slug: '', label: 'nav.tabs.overview' },
 	{ slug: 'console', label: 'nav.tabs.console', permission: 'CONSOLE' },
+	{ slug: 'files', label: 'nav.tabs.files', permission: 'FILES' },
 	{ slug: 'settings', label: 'nav.tabs.settings', permission: 'CONFIG' }
 ];
 

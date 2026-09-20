@@ -21,6 +21,7 @@ export const nav = {
 	tabs: {
 		overview: 'Overview',
 		console: 'Console',
-		settings: 'Settings'
+		settings: 'Settings',
+		files: 'Files'
 	}
 } as const;

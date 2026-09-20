@@ -4,6 +4,7 @@ mod config;
 mod db;
 mod error;
 mod events;
+mod files;
 mod install;
 mod java;
 mod perms;

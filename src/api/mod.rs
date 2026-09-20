@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod files;
 pub mod panel;
 pub mod properties;
 pub mod providers;

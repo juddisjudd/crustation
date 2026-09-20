@@ -703,82 +703,17 @@ async fn unpack(archive: &Path, into: &Path, internal_path: &str) -> Result<()> 
     let archive = archive.to_path_buf();
     let into = into.to_path_buf();
     let internal = internal_path.trim_matches('/').to_string();
-    tokio::task::spawn_blocking(move || extract(&archive, &into, &internal))
+    tokio::task::spawn_blocking(move || crate::files::extract_zip(&archive, &into, &internal))
         .await
         .context("unpacking the archive")?
-}
-
-fn extract(archive: &Path, into: &Path, internal: &str) -> Result<()> {
-    let file =
-        std::fs::File::open(archive).with_context(|| format!("opening {}", archive.display()))?;
-    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file))
-        .with_context(|| format!("reading {}", archive.display()))?;
-
-    for index in 0..zip.len() {
-        let mut entry = zip.by_index(index)?;
-        // enclosed_name refuses absolute paths and anything climbing out with '..'.
-        let Some(path) = entry.enclosed_name() else {
-            continue;
-        };
-        let relative = match internal.is_empty() {
-            true => path,
-            false => match path.strip_prefix(internal) {
-                Ok(rest) => rest.to_path_buf(),
-                Err(_) => continue,
-            },
-        };
-        if relative.as_os_str().is_empty() {
-            continue;
-        }
-
-        let target = into.join(&relative);
-        if entry.is_dir() {
-            std::fs::create_dir_all(&target)?;
-            continue;
-        }
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut out = std::fs::File::create(&target)
-            .with_context(|| format!("writing {}", target.display()))?;
-        std::io::copy(&mut entry, &mut out)?;
-
-        #[cfg(unix)]
-        if let Some(mode) = entry.unix_mode() {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode)).ok();
-        }
-    }
-    Ok(())
 }
 
 async fn copy_into(from: &Path, into: &Path) -> Result<()> {
     let from = from.to_path_buf();
     let into = into.to_path_buf();
-    tokio::task::spawn_blocking(move || copy_tree(&from, &into))
+    tokio::task::spawn_blocking(move || crate::files::copy_tree(&from, &into))
         .await
         .context("copying the server folder")?
-}
-
-fn copy_tree(from: &Path, into: &Path) -> Result<()> {
-    for entry in walkdir::WalkDir::new(from).follow_links(false) {
-        let entry = entry?;
-        let relative = entry.path().strip_prefix(from)?;
-        if relative.as_os_str().is_empty() {
-            continue;
-        }
-        let target = into.join(relative);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&target)?;
-        } else if entry.file_type().is_file() {
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::copy(entry.path(), &target)
-                .with_context(|| format!("copying {}", entry.path().display()))?;
-        }
-    }
-    Ok(())
 }
 
 fn strip_query(url: &str) -> &str {
