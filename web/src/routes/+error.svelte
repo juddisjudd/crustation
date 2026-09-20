@@ -12,10 +12,10 @@
 	);
 </script>
 
-<svelte:head><title>{status} · Crafty</title></svelte:head>
+<svelte:head><title>{status} · Crustation</title></svelte:head>
 
 <main class="flex min-h-svh flex-col items-center justify-center gap-6 px-4 text-center">
-	<LogoMark class="h-6 w-auto text-muted-foreground" />
+	<LogoMark class="h-10 w-auto" />
 	<div class="space-y-2">
 		<p class="font-mono text-sm text-muted-foreground">{status}</p>
 		<h1 class="text-xl font-semibold tracking-tight">{message}</h1>

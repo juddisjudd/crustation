@@ -54,7 +54,7 @@
 
 <main class="flex min-h-svh flex-col items-center justify-center px-4 py-12">
 	<div class="w-full max-w-[340px]">
-		<LogoMark class="mx-auto mb-8 h-8 w-auto" />
+		<LogoMark class="mx-auto mb-6 h-14 w-auto" />
 		<h1 class="mb-8 text-center text-2xl font-semibold tracking-tight">Sign in to Crustation</h1>
 
 		<form onsubmit={submit} class="space-y-4">

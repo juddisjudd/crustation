@@ -26,7 +26,7 @@
 					{#snippet child({ props })}
 						<a href={resolve('/')} {...props}>
 							<div class="grid size-8 place-items-center rounded-md border bg-background">
-								<LogoMark class="h-4 w-auto" />
+								<LogoMark class="h-5 w-auto" />
 							</div>
 							<span class="font-semibold tracking-tight">Crustation</span>
 						</a>
