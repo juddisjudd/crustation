@@ -23,6 +23,9 @@ pub enum Sort {
     Skin,
     /// Java's own kind, which lives inside the world rather than beside it.
     Datapack,
+    /// A whole world: a .mcworld on Bedrock, and a plain zip of the folder on
+    /// Java, which has no extension of its own for it.
+    World,
 }
 
 impl Sort {
@@ -34,6 +37,8 @@ impl Sort {
             Sort::WorldTemplate => PathBuf::from("world_templates"),
             Sort::Skin => PathBuf::from("skin_packs"),
             Sort::Datapack => Path::new(level).join("datapacks"),
+            // Bedrock keeps its worlds together; Java keeps each beside the jar.
+            Sort::World => PathBuf::from("worlds"),
         }
     }
 
@@ -178,8 +183,8 @@ pub fn install(
     )?;
     if found.is_empty() {
         bail!(
-            "Nothing in that file looks like a pack. A Bedrock pack has a manifest.json \
-             and a Java datapack has a pack.mcmeta."
+            "Nothing in that file is something the panel can place. A Bedrock pack has a \
+             manifest.json, a Java datapack has a pack.mcmeta, and a world has a level.dat."
         );
     }
     Ok(found)
@@ -212,6 +217,8 @@ fn unpack_into(
     let mut roots: BTreeMap<PathBuf, String> = BTreeMap::new();
     let mut nested: Vec<PathBuf> = Vec::new();
     let mut datapacks: Vec<PathBuf> = Vec::new();
+    let mut worlds: Vec<PathBuf> = Vec::new();
+    let mut world_names: BTreeMap<PathBuf, String> = BTreeMap::new();
 
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
@@ -229,6 +236,13 @@ fn unpack_into(
                 let mut text = String::new();
                 if entry.read_to_string(&mut text).is_ok() {
                     roots.insert(parent, text);
+                }
+            }
+            "level.dat" => worlds.push(parent),
+            "levelname.txt" => {
+                let mut text = String::new();
+                if entry.read_to_string(&mut text).is_ok() {
+                    world_names.insert(parent, text.trim().to_string());
                 }
             }
             "pack.mcmeta" if !bedrock => {
@@ -291,6 +305,53 @@ fn unpack_into(
             uuid: Some(manifest.uuid),
             version: manifest.version,
             activated,
+        });
+    }
+
+    // A level.dat below another world's root is that world's, not a second one.
+    let tops: Vec<PathBuf> = worlds
+        .iter()
+        .filter(|one| {
+            !worlds
+                .iter()
+                .any(|other| other != *one && one.starts_with(other))
+        })
+        .cloned()
+        .collect();
+
+    for root in tops {
+        // What the world calls itself, which is what the player will look for.
+        let named = world_names
+            .get(&root)
+            .cloned()
+            .filter(|one| !one.is_empty())
+            .or_else(|| {
+                root.file_name()
+                    .and_then(|one| one.to_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| stem(archive).to_string());
+        let folder = folder_name(&named, stem(archive));
+        // Bedrock gathers its worlds under worlds/; Java keeps each at the top.
+        let at = match bedrock {
+            true => server.join("worlds").join(&folder),
+            false => server.join(&folder),
+        };
+        std::fs::remove_dir_all(&at).ok();
+        std::fs::create_dir_all(&at)?;
+        crate::files::extract_zip(archive, &at, root.to_str().unwrap_or_default())?;
+        found.push(Installed {
+            name: named,
+            sort: Sort::World,
+            path: match bedrock {
+                true => relative(PathBuf::from("worlds").join(&folder)),
+                false => folder.clone(),
+            },
+            uuid: None,
+            version: Vec::new(),
+            // Nothing is loaded until level-name points at it, which is the
+            // caller's to decide.
+            activated: false,
         });
     }
 
@@ -530,6 +591,11 @@ mod tests {
         assert_eq!(folder_name("", "from-file"), "from-file");
         assert_eq!(folder_name("../../etc", "x"), "etc");
         assert_eq!(folder_name("///", "///"), "pack");
+    }
+
+    #[test]
+    fn a_world_goes_under_worlds_on_bedrock() {
+        assert_eq!(Sort::World.folder("anything"), PathBuf::from("worlds"));
     }
 
     #[test]

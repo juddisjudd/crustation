@@ -119,6 +119,25 @@ async fn add(
     .map_err(|error| ApiError::Internal(error.into()))?
     .map_err(|error| ApiError::conflict(error.to_string()))?;
 
+    // Importing a world means playing it, so the server is pointed at it. The
+    // reply says which, since it is a bigger change than dropping in a pack.
+    let switched = match installed
+        .iter()
+        .find(|one| one.sort == crate::packs::Sort::World)
+    {
+        Some(world) if activate => {
+            let folder = world
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&world.path)
+                .to_string();
+            use_world(&state, id, &folder).await?;
+            Some(folder)
+        }
+        _ => None,
+    };
+
     super::audit(
         &state,
         Some(&identity.user),
@@ -129,6 +148,20 @@ async fn add(
     .await;
     Ok(OkJson(json!({
         "installed": installed,
+        "level_name": switched,
         "restart_required": true,
     })))
+}
+
+/// Points `level-name` at a world that has just arrived.
+async fn use_world(state: &AppState, id: Uuid, folder: &str) -> Result<(), ApiError> {
+    let row = super::servers::load(state, id).await?;
+    let path = crate::properties::path_in(FsPath::new(&row.directory));
+    let mut file = crate::properties::Properties::load_if_present(&path)
+        .await
+        .map_err(ApiError::Internal)?
+        .unwrap_or_else(|| crate::properties::Properties::empty(&path));
+    file.set("level-name", folder);
+    file.save().await.map_err(ApiError::Internal)?;
+    Ok(())
 }
