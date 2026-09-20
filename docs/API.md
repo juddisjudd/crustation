@@ -56,14 +56,14 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | POST   | `/servers`              | Create from a provider download or an import. Returns `201 {id}`; the work continues in the background and is reported over the WebSocket. Requires `CREATE_SERVER`.                                                                                                                            |
 | GET    | `/servers/{id}`         | One server with its settings, stats, flags and permissions.                                                                                                                                                                                                                                     |
 | PATCH  | `/servers/{id}`         | Change settings. Only fields the caller may change are accepted.                                                                                                                                                                                                                                |
-| DELETE | `/servers/{id}`         | `?delete_files=true` also removes the folder.                                                                                                                                                                                                                                                   |
+| DELETE | `/servers/{id}`         | `?delete_files=true` also removes the folder. The server has to be stopped first, or the answer is `409 CONFLICT`. Requires `CONFIG`; the interface offers it as a danger zone on the server's settings tab.                                                                                 |
 | POST   | `/servers/{id}/action`  | `{action: "start"\|"stop"\|"restart"\|"kill"\|"clone"}`. Returns immediately; watch the events.                                                                                                                                                                                                 |
 | POST   | `/servers/{id}/command` | `{command}` → `{via: "rcon"\|"stdin", output}`. Goes over RCON when the server has it set up, and over stdin otherwise; only RCON returns `output`. Requires `COMMANDS`.                                                                                                                        |
 | GET    | `/servers/{id}/console` | Recent console lines: `{lines: [{seq, at, stream, text}]}`, `?after=<seq>` for the tail. `stream` is `stdout`, `stderr`, `install` for what the installer did, and `command` and `rcon` for the panel's echo of an RCON exchange.                                                              |
 | GET    | `/servers/{id}/rcon`    | `{supported, enabled, port, reachable}`. `supported` is false for Bedrock, which has no RCON. `reachable` is proven by connecting, so it is only ever true while the server is up. Requires `COMMANDS`.                                                                                         |
 | POST   | `/servers/{id}/rcon`    | Turns RCON on: sets `enable-rcon`, picks a free port and writes a password into `server.properties`. `{regenerate_password}` replaces one that is already there. Returns `{port, restart_required}`. `409 CONFLICT` when the server has not written `server.properties` yet. Requires `CONFIG`. |
 | GET    | `/servers/{id}/logs`    | Log files: `{files: [{name, size, modified}]}`; `?file=` returns its contents.                                                                                                                                                                                                                  |
-| GET    | `/servers/{id}/stats`   | History: `?from=&to=&resolution=` → `{points: [{at, cpu, memory_bytes, memory_percent, players}]}`.                                                                                                                                                                                             |
+| GET    | `/servers/stats`        | Recent history for every server the caller can see, in one call: `?minutes=&points=` → `{since, minutes, series: {"<id>": [{cpu, memory_percent} | null]}}`. Averaged into `points` buckets so a line is a fixed length; a bucket nothing was sampled in is `null`, which draws as a gap rather than a floor. |
 | GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. Requires `PLAYERS`. |
 | POST   | `/servers/{id}/player-actions` | One thing to do about one player. Requires `PLAYERS`, or `COMMANDS` for `give`, `teleport`, `say` and `whisper`. |
 | GET    | `/servers/{id}/map`     | A web map installed on the server: `{found}` alone, or `{found, id, name, port, enabled, answering, config}`. Requires `CONSOLE`. |
@@ -308,7 +308,8 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | POST             | `/servers/{id}/files/upload`                             | Streamed upload, `?path=` for the folder. Progress is an event.                                                                                                                                                                                          |
 | GET              | `/servers/{id}/files/download?path=`                     | Streams the file, or a zip of a folder.                                                                                                                                                                                                                  |
 | POST             | `/servers/{id}/files/extract`                            | `{path}` to unzip in place.                                                                                                                                                                                                                              |
-| GET              | `/servers/{id}/packs`                                    | What is installed: `{packs: [{name, sort, path, uuid, version, activated, stock}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
+| GET              | `/servers/{id}/packs`                                    | `{packs: [{name, sort, path, uuid, version, activated, stock}], missing: [{uuid, version, sort}]}`. Read off the folders, so a pack dropped in by hand is listed too. Requires `FILES`. |
+| DELETE           | `/servers/{id}/packs`                                    | `{path}` removes an installed pack: its files, and its id from every world that names it. `{uuid, world}` instead takes an id out of one world's list, for an entry with no pack behind it. `404` if neither is found. Requires `FILES`. |
 | POST             | `/servers/{id}/packs`                                    | `{path, activate, world, use_world}` installs an add-on already in the server folder. Returns `{installed, world, level_name, restart_required}`. Requires `FILES`. |
 | POST             | `/servers/{id}/packs/upload?name=&activate=&world=&use_world=` | The archive itself as the body, unpacked without ever landing in the server folder. Same reply. Requires `FILES`. |
 | GET              | `/servers/{id}/worlds`                                   | `{worlds: [{name, folder, path}], level_name}`. A world is a folder holding a `level.dat`. Requires `FILES`. |
@@ -334,6 +335,13 @@ nested inside it, and both shapes are handled.
   goes: `data`, `script` and `client_data` are behaviour packs, `resources` a resource pack.
 - Behaviour packs land in `behavior_packs/<name>`, resource packs in `resource_packs/<name>`, and
   the folder is replaced rather than merged, so an update leaves nothing of the old one behind.
+  Replacing only ever happens when the folder already holds **the same pack**, by id. Two packs
+  that call themselves the same thing get separate folders, the second marked with its own id.
+  Letting them share would mean the second deleted the first while both stayed in the world's
+  list, and the server would start up saying a configured pack was not found.
+- `missing` is the other half of that: ids the world's lists name with no pack behind them, which
+  is exactly what the server reports once at startup and then never again. `DELETE` on the same
+  path takes one out of the list; the pack's own folder, if it has one, is untouched.
 - `activate` also writes the pack into `worlds/<level-name>/world_behavior_packs.json` or
   `world_resource_packs.json`, because Bedrock ignores a pack that is only sitting in the folder.
   The list is **added to, never replaced**: the file is read, the new pack appended, and every
@@ -436,7 +444,7 @@ into the game.
 
 | Method    | Path                                                           | Purpose                                                      |
 | --------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| GET       | `/panel/stats`                                                 | Host CPU, memory, disks, uptime.                             |
+| GET       | `/panel/stats`                                                 | Host CPU, memory, storage, uptime. `disks` is one row per filesystem the panel's own folders sit on, with `keeps` naming which, rather than every mount the host reports. |
 | GET/PATCH | `/panel/settings`                                              | Panel configuration, grouped by section.                     |
 | GET       | `/panel/audit?limit=&before=`                                  | Audit entries, newest first.                                 |
 | GET       | `/panel/java`                                                  | Java runtimes found on the host.                             |

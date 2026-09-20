@@ -1,5 +1,6 @@
 <script lang="ts">
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
@@ -10,8 +11,13 @@
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import * as Field from '$lib/components/ui/field/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
+	import SettingsCard from '$lib/components/settings-card.svelte';
+	import { confirmWith } from '$lib/components/confirm/confirm.svelte';
 	import { ApiError } from '$lib/api/client';
-	import { errorMessage } from '$lib/api/servers';
+	import { deleteServer, errorMessage } from '$lib/api/servers';
+	import { servers } from '$lib/servers.svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import {
 		readProperties,
 		writeProperties,
@@ -31,6 +37,32 @@
 	let edits = $state<Record<string, string>>({});
 	let saving = $state(false);
 	let fieldErrors = $state.raw<Record<string, string>>({});
+	let deleting = $state(false);
+
+	const canConfigure = $derived(server.permissions.includes('CONFIG'));
+	const running = $derived(servers.isRunning(server.id));
+
+	async function erase() {
+		const { confirmed, checked } = await confirmWith({
+			title: t('settings.danger.confirmTitle', { name: server.name }),
+			description: t('settings.danger.confirmBody'),
+			confirmLabel: t('settings.danger.button'),
+			destructive: true,
+			checkbox: t('settings.danger.files')
+		});
+		if (!confirmed) return;
+
+		deleting = true;
+		try {
+			await deleteServer(server.id, checked);
+			toast.success(t('settings.danger.done', { name: server.name }));
+			await servers.refresh();
+			await goto(resolve('/'));
+		} catch (err) {
+			toast.error(t('settings.danger.failed'), { description: errorMessage(err) });
+			deleting = false;
+		}
+	}
 
 	const groups = $derived.by(() => {
 		const out: { name: string; items: ServerProperty[] }[] = [];
@@ -253,6 +285,26 @@
 					</div>
 				{/if}
 			</section>
+
+			{#if canConfigure}
+				<SettingsCard
+					destructive
+					title={t('settings.danger.title')}
+					description={t('settings.danger.description')}
+				>
+					<p class="text-sm text-muted-foreground">{t('settings.danger.filesHint')}</p>
+
+					{#snippet hint()}
+						{#if running}{t('settings.danger.running')}{/if}
+					{/snippet}
+					{#snippet action()}
+						<Button variant="destructive" size="sm" disabled={running || deleting} onclick={erase}>
+							{#if deleting}<Spinner class="size-4" />{:else}<Trash2Icon />{/if}
+							{t('settings.danger.button')}
+						</Button>
+					{/snippet}
+				</SettingsCard>
+			{/if}
 		</div>
 	{/if}
 </div>

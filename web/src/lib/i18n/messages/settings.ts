@@ -19,5 +19,19 @@ export const settings = {
 		description: 'Keys the panel has no form for. Edit them as text.',
 		managed: 'The panel writes this one.',
 		empty: 'Nothing else is in the file.'
+	},
+	danger: {
+		title: 'Delete this server',
+		description:
+			'The server is removed from the panel. Its stats, schedules and saved commands go with it. This cannot be undone.',
+		files: 'Delete the files as well, including every world',
+		filesHint:
+			'Leave this off to keep the folder on disk and only remove the server from the panel.',
+		button: 'Delete server',
+		confirmTitle: 'Delete {name}?',
+		confirmBody: 'This cannot be undone.',
+		running: 'Stop the server before deleting it.',
+		done: 'Deleted {name}',
+		failed: 'Could not delete the server'
 	}
 } as const;
