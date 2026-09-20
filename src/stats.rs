@@ -133,7 +133,48 @@ async fn ping_all(state: &AppState) -> HashMap<Uuid, crate::ping::Status> {
     }))
     .await;
 
-    answers.into_iter().flatten().collect()
+    let seen: HashMap<Uuid, crate::ping::Status> = answers.into_iter().flatten().collect();
+    for (id, status) in &seen {
+        remember_players(state, *id, status).await;
+    }
+    seen
+}
+
+/// Keeps a roll of who has been on. Java hands back a short sample rather than
+/// the whole list, and none at all when `hide-online-players` is set, so this is
+/// what the server was willing to say and not a register.
+async fn remember_players(state: &AppState, id: Uuid, status: &crate::ping::Status) {
+    let now = Utc::now().to_rfc3339();
+    let result = sqlx::query("UPDATE server_players SET online = 0 WHERE server_id = ?")
+        .bind(id.to_string())
+        .execute(&state.db)
+        .await;
+    if let Err(error) = result {
+        tracing::debug!(%error, "could not clear the online marks");
+        return;
+    }
+
+    for player in &status.sample {
+        let stored = sqlx::query(
+            "INSERT INTO server_players (server_id, name, uuid, first_seen, last_seen, online)
+             VALUES (?, ?, ?, ?, ?, 1)
+             ON CONFLICT(server_id, name) DO UPDATE SET
+                 last_seen = excluded.last_seen,
+                 online = 1,
+                 uuid = COALESCE(excluded.uuid, server_players.uuid)",
+        )
+        .bind(id.to_string())
+        .bind(&player.name)
+        .bind(&player.uuid)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await;
+
+        if let Err(error) = stored {
+            tracing::debug!(%error, "could not remember a player");
+        }
+    }
 }
 
 fn publish_host(state: &AppState, system: &mut System) {

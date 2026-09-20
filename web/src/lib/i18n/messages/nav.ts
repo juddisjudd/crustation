@@ -25,6 +25,7 @@ export const nav = {
 		overview: 'Overview',
 		console: 'Console',
 		settings: 'Settings',
-		files: 'Files'
+		files: 'Files',
+		players: 'Players'
 	}
 } as const;

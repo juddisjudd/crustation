@@ -2,6 +2,7 @@ pub mod auth;
 pub mod files;
 pub mod macros;
 pub mod panel;
+pub mod players;
 pub mod properties;
 pub mod providers;
 pub mod roles;

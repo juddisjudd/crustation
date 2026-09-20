@@ -20,6 +20,16 @@ pub struct Status {
     pub players_online: i64,
     pub players_max: i64,
     pub latency_ms: i64,
+    /// Who the server named. Java sends a short sample, usually a dozen at most,
+    /// and sends none at all when `hide-online-players` is on. Bedrock's pong
+    /// carries no names, so this is empty there.
+    pub sample: Vec<Player>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Player {
+    pub name: String,
+    pub uuid: Option<String>,
 }
 
 const TIMEOUT: Duration = Duration::from_secs(3);
@@ -117,7 +127,30 @@ async fn java(host: &str, port: u16) -> Result<Status> {
         players_online: parsed["players"]["online"].as_i64().unwrap_or(0),
         players_max: parsed["players"]["max"].as_i64().unwrap_or(0),
         latency_ms,
+        sample: sample_from(&parsed["players"]["sample"]),
     })
+}
+
+/// The short list of names Java attaches to a status, when it attaches one.
+fn sample_from(value: &Value) -> Vec<Player> {
+    value
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let name = entry["name"].as_str()?.trim().to_string();
+                    if name.is_empty() {
+                        return None;
+                    }
+                    Some(Player {
+                        name,
+                        uuid: entry["id"].as_str().map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// A description is either a plain string or a chat component with nested parts.
@@ -199,6 +232,8 @@ fn parse_bedrock(line: &str, latency_ms: i64) -> Result<Status> {
         players_online: parts[4].parse().unwrap_or(0),
         players_max: parts[5].parse().unwrap_or(0),
         latency_ms,
+        // A pong carries counts, never names.
+        sample: Vec::new(),
     })
 }
 

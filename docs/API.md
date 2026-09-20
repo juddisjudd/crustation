@@ -64,7 +64,8 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | POST   | `/servers/{id}/rcon`    | Turns RCON on: sets `enable-rcon`, picks a free port and writes a password into `server.properties`. `{regenerate_password}` replaces one that is already there. Returns `{port, restart_required}`. `409 CONFLICT` when the server has not written `server.properties` yet. Requires `CONFIG`. |
 | GET    | `/servers/{id}/logs`    | Log files: `{files: [{name, size, modified}]}`; `?file=` returns its contents.                                                                                                                                                                                                                  |
 | GET    | `/servers/{id}/stats`   | History: `?from=&to=&resolution=` → `{points: [{at, cpu, memory_bytes, memory_percent, players}]}`.                                                                                                                                                                                             |
-| GET    | `/servers/{id}/players` | `{online: [...], known: [...], banned: [...]}`.                                                                                                                                                                                                                                                 |
+| GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists}`. Requires `PLAYERS`.                                                                                                                                                                                                                             |
+| GET/POST/DELETE | `/servers/{id}/players/{list}` | One of the files the game keeps beside the world. `POST {value, reason?, level?}` adds, `DELETE {value}` removes.                                                                                                                                                             |
 
 A server object is flat and honest about what is derived:
 
@@ -118,6 +119,19 @@ A server object is flat and honest about what is derived:
 server itself: the Server List Ping on Java, RakNet's unconnected ping on Bedrock. They are null
 until it answers, and stay null for a server that never does. A Bedrock server only listens for
 that ping when `transport=raknet`; under Mojang's default of `nethernet` there is no port to ask.
+
+The player lists are the JSON files the game itself keeps: `ops.json`, `whitelist.json`,
+`banned-players.json` and `banned-ips.json` on Java, `allowlist.json` and `permissions.json` on
+Bedrock. `GET /servers/{id}/players` names the ones that kind of server has. A file that does not
+exist yet reads as an empty list, because the server writes it the first time it has something to
+put there, and a write goes beside the file and renames so a crash cannot leave half of one.
+
+Adding to a Java list resolves the name with Mojang first, since those files are keyed by UUID and
+a row without one is a row the server ignores. A name nobody holds is refused. Bedrock takes the
+gamertag or Xbox id as given.
+
+`online` is what the server said when last asked. Java sends a sample rather than the whole list,
+and none at all under `hide-online-players`, which `sampled` flags so the interface can say so.
 
 ## Creating a server
 

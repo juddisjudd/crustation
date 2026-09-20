@@ -53,6 +53,11 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   that console.
 - A warning on any server sharing a port with another of the same edition, since Java binds TCP
   and Bedrock binds UDP and only a clash within one of them stops the other starting.
+- A players page: who is on, who has been on, and editable tables for each of the files a server
+  keeps beside its world. Java's `ops.json`, `whitelist.json`, `banned-players.json` and
+  `banned-ips.json`, and Bedrock's `allowlist.json` and `permissions.json`, each written in the
+  shape the game expects. Adding somebody to a Java list looks their UUID up with Mojang rather
+  than writing half a row, and every face is their own head.
 - Docker image (interface + panel + JREs), compose file, Unraid template, entrypoint with
   PUID/PGID.
 
@@ -60,24 +65,21 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 
 1. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
    restart broadcasts a warning ladder in game before it stops the server.
-2. **Players.** Online list and history. `ops.json`, `whitelist.json`, `banned-players.json` and
-   `banned-ips.json` on Java, `allowlist.json` and `permissions.json` on Bedrock (keyed by XUID),
-   all as editable tables with username to UUID lookup and player heads.
-3. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
+2. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
    rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
    Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
    and the End. Bedrock keeps its experiment toggles, Beta APIs among them, in the world's
    `level.dat` rather than in `server.properties`, so turning those on means reading and writing
    Bedrock's little-endian NBT. Java needs none of that: its experiments arrive as feature packs
    named in `initial-enabled-packs`, which server creation already offers.
-4. **Guarded upgrades.** Keep a copy of the old jar, swap it, start, and put the old one back on
+3. **Guarded upgrades.** Keep a copy of the old jar, swap it, start, and put the old one back on
    its own if the server never reaches ready. Originally this leaned on the backup manager; with
    backups moved out it keeps its own copy instead, which is all the rollback actually needs.
-5. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
+4. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
    failed-backup notifications, and browser push through the manifest the interface already ships.
-6. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
+5. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
    RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
-7. **Public status page**, panel settings, branding.
+6. **Public status page**, panel settings, branding.
 
 ## Alongside
 
