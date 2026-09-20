@@ -99,8 +99,8 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   scratch folder outside and deleted either way. Installing from the file browser still works for
   a file already there.
 - An MCP server at `/mcp`, so an assistant can look at a server rather than be told about it:
-  twelve tools covering the list, the console, commands, players, `server.properties`, the files
-  and the add-ons, plus the same ground as resources. It is the panel's own permissions
+  thirteen tools covering the list, the console, commands, players, `server.properties`, reading
+  and writing the files, and the add-ons, plus the same ground as resources. It is the panel's own permissions
   throughout — the key is an API key, a session cookie is refused, and every call goes through
   the check the REST route would have made. Writes land in the audit log marked as MCP.
 

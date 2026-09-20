@@ -291,6 +291,17 @@ pub struct ReadFile {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct WriteFile {
+    /// The server's id, or its name.
+    server: String,
+    /// The file, relative to the server's own root. Folders along the way that
+    /// do not exist yet are made.
+    path: String,
+    /// The whole new contents. The file is replaced, not added to.
+    content: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct SetProperty {
     /// The server's id, or its name.
     server: String,
@@ -609,6 +620,68 @@ impl Crustation {
         })))
     }
 
+    /// Writes a text file into a server's folder, replacing whatever was there
+    /// and making the folders along the path if they are missing. Refuses a
+    /// folder, and refuses more than the 256 KB `read_file` will read back, so
+    /// nothing is written that cannot be read again. Needs the FILES permission.
+    #[tool]
+    async fn write_file(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(WriteFile {
+            server,
+            path,
+            content,
+        }): Parameters<WriteFile>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        const LIMIT: usize = 256 * 1024;
+
+        let who = Self::caller(&parts)?;
+        let row = self.find(who, &server, ServerPerm::Files).await?;
+        let root = PathBuf::from(&row.directory);
+        let at = crate::files::resolve(&root, &path)
+            .map_err(|refused| ErrorData::invalid_params(refused.to_string(), None))?;
+
+        if content.len() > LIMIT {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "{path} would be {} bytes, which is more than this tool will write.",
+                    content.len()
+                ),
+                None,
+            ));
+        }
+
+        let existing = tokio::fs::metadata(&at).await.ok();
+        if existing.as_ref().is_some_and(std::fs::Metadata::is_dir) {
+            return Err(ErrorData::invalid_params(
+                format!("{path} is a folder, not a file."),
+                None,
+            ));
+        }
+
+        if let Some(parent) = at.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(internal)?;
+        }
+        tokio::fs::write(&at, content.as_bytes())
+            .await
+            .map_err(internal)?;
+
+        crate::api::audit(
+            &self.state,
+            Some(&who.user),
+            Some(row.uuid()),
+            "wrote a file over MCP",
+            Some(&path),
+        )
+        .await;
+        Ok(Json(serde_json::json!({
+            "path": path,
+            "bytes": content.len(),
+            "created": existing.is_none(),
+        })))
+    }
+
     /// The add-ons installed on a server, read off the folders rather than out
     /// of a register, so one dropped in by hand is listed too. Needs the FILES
     /// permission.
@@ -712,6 +785,7 @@ pub fn catalogue() -> Vec<(&'static str, Option<ServerPerm>)> {
         ("set_property", Some(ServerPerm::Config)),
         ("list_files", Some(ServerPerm::Files)),
         ("read_file", Some(ServerPerm::Files)),
+        ("write_file", Some(ServerPerm::Files)),
         ("list_packs", Some(ServerPerm::Files)),
         ("panel_overview", None),
     ]

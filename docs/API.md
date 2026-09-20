@@ -505,7 +505,7 @@ claude mcp add --transport http crustation https://panel.example.com/mcp \
 - Every call runs as that key's owner and goes through the same permission checks the REST API
   uses, so an MCP client reaches exactly as far as the key already could, and no further. A
   refusal comes back as an error the model can read, naming the permission it wanted.
-- The writes — `server_action`, `send_command`, `set_property` — are recorded in the audit log
+- The writes — `server_action`, `send_command`, `set_property`, `write_file` — are recorded in the audit log
   like any other, marked as having come over MCP.
 - Sessions are not kept. Each request stands alone, which is what the `2026-07-28` revision of
   the protocol expects.
@@ -531,12 +531,16 @@ claude mcp add --transport http crustation https://panel.example.com/mcp \
 | `set_property`    | `server`, `key`, `value`    | `CONFIG`   |
 | `list_files`      | `server`, `path?`           | `FILES`    |
 | `read_file`       | `server`, `path`            | `FILES`    |
+| `write_file`      | `server`, `path`, `content` | `FILES`    |
 | `list_packs`      | `server`                    | `FILES`    |
 | `panel_overview`  | —                           | —          |
 
 `server` is a server's id or its name, because a name is what an assistant has to hand.
 `read_file` refuses anything binary or over 256 KB rather than guessing at it, and every path is
-checked the same way the file API checks one. `set_property` runs the value past the catalogue
+checked the same way the file API checks one. `write_file` replaces the file rather than adding to
+it, makes the folders along the path, refuses a folder, and stops at the same 256 KB, so nothing
+is written that cannot be read back. It has no "changed since you read it" check, so two writers
+racing is the last one's answer. `set_property` runs the value past the catalogue
 for that edition and refuses the keys the panel writes itself.
 
 Resources cover the same ground for a client that would rather attach state than call a tool:
