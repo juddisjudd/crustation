@@ -6,6 +6,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import PackagePlusIcon from '@lucide/svelte/icons/package-plus';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import { toast } from 'svelte-sonner';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -17,6 +18,7 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Empty from '$lib/components/ui/empty/index.js';
+	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
@@ -82,7 +84,26 @@
 	// somebody added, so they are folded away until asked for.
 	let showStock = $state(false);
 	const stockCount = $derived((packs ?? []).filter((one) => one.stock).length);
-	const shown = $derived((packs ?? []).filter((one) => showStock || !one.stock));
+
+	let query = $state('');
+	const searching = $derived(query.trim().length > 0);
+
+	// A pack is looked for by what the operator has to hand: its name, the
+	// folder it sits in, the id a server log names it by, or the note about it.
+	const matches = $derived.by(() => {
+		const needle = query.trim().toLowerCase();
+		if (!needle) return packs ?? [];
+		return (packs ?? []).filter((one) =>
+			[one.name, one.path, one.uuid ?? '', one.note?.text ?? ''].some((field) =>
+				field.toLowerCase().includes(needle)
+			)
+		);
+	});
+
+	const shown = $derived(matches.filter((one) => showStock || !one.stock));
+	/** Matches folded away with the stock packs, so a search never looks empty
+	 * when the answer is only hidden. */
+	const stockMatches = $derived(searching ? matches.length - shown.length : 0);
 
 	async function refresh(id: string) {
 		try {
@@ -325,24 +346,51 @@
 	<section class="space-y-3">
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<h2 class="text-sm font-medium">{t('content.packs')}</h2>
-			{#if stockCount}
-				<div class="flex items-center gap-2">
-					<Switch id="show-stock" bind:checked={showStock} />
-					<Label for="show-stock" class="text-xs font-normal text-muted-foreground">
-						{showStock ? t('content.showStock') : t('content.stockHidden', { count: stockCount })}
-					</Label>
-				</div>
-			{/if}
+			<div class="flex flex-1 flex-wrap items-center justify-end gap-3">
+				<InputGroup.Root class="max-w-xs">
+					<InputGroup.Addon><SearchIcon /></InputGroup.Addon>
+					<InputGroup.Input
+						bind:value={query}
+						placeholder={t('content.search')}
+						aria-label={t('content.search')}
+					/>
+				</InputGroup.Root>
+				{#if stockCount}
+					<div class="flex items-center gap-2">
+						<Switch id="show-stock" bind:checked={showStock} />
+						<Label for="show-stock" class="text-xs font-normal text-muted-foreground">
+							{showStock ? t('content.showStock') : t('content.stockHidden', { count: stockCount })}
+						</Label>
+					</div>
+				{/if}
+			</div>
 		</div>
+		{#if stockMatches > 0}
+			<p class="text-xs text-muted-foreground">
+				{t('content.stockMatches', { count: String(stockMatches) })}
+			</p>
+		{/if}
 		{#if !packs}
 			<Skeleton class="h-40 rounded-lg" />
 		{:else if shown.length === 0}
 			<Empty.Root class="rounded-lg border border-dashed py-12">
 				<Empty.Header>
-					<Empty.Media variant="icon"><BoxIcon /></Empty.Media>
-					<Empty.Title>{stockCount ? t('content.onlyStock') : t('content.noPacks')}</Empty.Title>
+					<Empty.Media variant="icon">
+						{#if searching}<SearchIcon />{:else}<BoxIcon />{/if}
+					</Empty.Media>
+					<Empty.Title>
+						{#if searching}
+							{t('content.noMatch')}
+						{:else}
+							{stockCount ? t('content.onlyStock') : t('content.noPacks')}
+						{/if}
+					</Empty.Title>
 					<Empty.Description>
-						{stockCount ? t('content.onlyStockHint') : t('content.noPacksHint')}
+						{#if searching}
+							{t('content.noMatchHint')}
+						{:else}
+							{stockCount ? t('content.onlyStockHint') : t('content.noPacksHint')}
+						{/if}
 					</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>

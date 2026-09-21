@@ -70,6 +70,11 @@ export const content = {
 	removed: 'Removed {name}',
 	removedFrom: 'Taken out of {worlds}.',
 	removedNowhere: 'No world was loading it.',
+	search: 'Search add-ons',
+	noMatch: 'Nothing here matches',
+	noMatchHint: 'Searched the name, the folder, the pack id and the note.',
+	stockMatches: '{count} more match among the packs the server came with.',
+
 	notes: 'Notes',
 	notesFor: 'Notes on {name}',
 	notesBody:
