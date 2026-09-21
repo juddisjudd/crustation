@@ -98,9 +98,14 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   for that when you mean it. Neither file ever lands in the server folder: it is unpacked from a
   scratch folder outside and deleted either way. Installing from the file browser still works for
   a file already there.
+- Notes on an add-on, since plenty of them need something run in the game before they do
+  anything and the pack is the only place that says so. Free text, plus commands as buttons that
+  run the way the console runs one. The panel reads the pack for starting points: the functions
+  it ships, the script event ids its scripts watch for, the slash commands they register and the
+  settings its manifest declares. Kept per server against the pack's id, so an update keeps them.
 - An MCP server at `/mcp`, so an assistant can look at a server rather than be told about it:
   thirteen tools covering the list, the console, commands, players, `server.properties`, reading
-  and writing the files, and the add-ons, plus the same ground as resources. It is the panel's own permissions
+  and writing the files, and the add-ons with their notes, plus the same ground as resources. It is the panel's own permissions
   throughout — the key is an API key, a session cookie is refused, and every call goes through
   the check the REST route would have made. Writes land in the audit log marked as MCP.
 

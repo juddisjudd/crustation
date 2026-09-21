@@ -70,6 +70,35 @@ export const content = {
 	removed: 'Removed {name}',
 	removedFrom: 'Taken out of {worlds}.',
 	removedNowhere: 'No world was loading it.',
+	notes: 'Notes',
+	notesFor: 'Notes on {name}',
+	notesBody:
+		'For what this add-on needs run in the game: how to switch it on, what puts it right when it misbehaves.',
+	notesPlaceholder: 'Sneak and break an ore to vein-mine. Tools below diamond are ignored.',
+	notesSave: 'Save',
+	notesSaved: 'Saved',
+	notesEmpty: 'Nothing written down yet.',
+	notesHas: 'Has a note',
+	notesCommands: 'Buttons',
+	notesCommandsBody: 'Each one runs on the server, the same as typing it into the console.',
+	notesAddCommand: 'Add a button',
+	notesLabel: 'Button',
+	notesCommand: 'Command',
+	notesRemoveCommand: 'Remove {name}',
+	notesRun: 'Run',
+	notesRan: 'Sent {name}',
+	notesPlayerWarning:
+		'These run as the server, not as a player. A command aimed at @s or @p wants typing in the game instead.',
+	notesFound: 'Found in this pack',
+	notesFoundBody: 'Read out of the pack itself, so it is a starting point rather than a promise.',
+	notesAdd: 'Add',
+	notesKindFunction: 'Functions',
+	notesKindScriptevent: 'Script events',
+	notesKindCommand: 'Slash commands',
+	notesKindSetting: 'World settings',
+	notesKindSettingBody: 'Changed in the game, from the world settings, not from a console.',
+	notesNothingFound: 'Nothing in this pack looks like a command.',
+
 	removedSkipped:
 		'{worlds} still names it: that pack list could not be read, so it was left alone. Fix it by hand, or the server will warn about a pack it cannot find.'
 } as const;

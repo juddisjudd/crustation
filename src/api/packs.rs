@@ -40,7 +40,7 @@ pub fn looks_installable(name: &str) -> bool {
     TAKEN.iter().any(|one| lower.ends_with(one))
 }
 
-async fn located(
+pub(crate) async fn located(
     identity: &Identity,
     state: &AppState,
     id: Uuid,
@@ -89,7 +89,8 @@ async fn list(
     .await
     .map_err(|error| ApiError::Internal(error.into()))?;
 
-    Ok(OkJson(json!({ "packs": found, "missing": absent })))
+    let packs = super::pack_notes::attach(&state, id, found).await?;
+    Ok(OkJson(json!({ "packs": packs, "missing": absent })))
 }
 
 #[derive(Deserialize)]

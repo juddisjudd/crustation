@@ -1,6 +1,7 @@
 <script lang="ts">
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+	import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
@@ -18,7 +19,10 @@
 	import * as Empty from '$lib/components/ui/empty/index.js';
 	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { confirm } from '$lib/components/confirm/confirm.svelte';
+	import PackNoteDialog from '$lib/components/servers/pack-note-dialog.svelte';
+	import { servers } from '$lib/servers.svelte';
 	import { errorMessage } from '$lib/api/servers';
 	import {
 		ADDON_TYPES,
@@ -31,6 +35,7 @@
 		uploadPack,
 		type MissingPack,
 		type Pack,
+		type PackNote,
 		type PackSort,
 		type World
 	} from '$lib/api/packs';
@@ -39,6 +44,25 @@
 	let { data } = $props();
 
 	const server = $derived(data.server);
+	const canConfigure = $derived(server.permissions.includes('CONFIG'));
+	const canCommand = $derived(server.permissions.includes('COMMANDS'));
+	const running = $derived(servers.isRunning(server.id));
+
+	/** The pack whose note is open, and the note dialog's own open flag. */
+	let noting = $state.raw<Pack | null>(null);
+	let noteOpen = $state(false);
+
+	function openNote(pack: Pack) {
+		noting = pack;
+		noteOpen = true;
+	}
+
+	/** Keeps the row's mark in step without asking the server for the list again. */
+	function noted(note: PackNote | null) {
+		const id = noting?.uuid;
+		if (!id) return;
+		packs = (packs ?? []).map((one) => (one.uuid === id ? { ...one, note } : one));
+	}
 
 	let packs = $state.raw<Pack[] | null>(null);
 	let missing = $state.raw<MissingPack[]>([]);
@@ -339,6 +363,19 @@
 								<Table.Cell>
 									<div class="flex items-center gap-2">
 										<span class="font-medium">{pack.name}</span>
+										{#if pack.note}
+											<Tooltip.Provider>
+												<Tooltip.Root>
+													<Tooltip.Trigger>
+														<NotebookPenIcon
+															class="size-3.5 text-muted-foreground"
+															aria-label={t('content.notesHas')}
+														/>
+													</Tooltip.Trigger>
+													<Tooltip.Content>{t('content.notesHas')}</Tooltip.Content>
+												</Tooltip.Root>
+											</Tooltip.Provider>
+										{/if}
 										{#if pack.stock}
 											<Badge variant="outline" class="text-muted-foreground">
 												{t('content.stock')}
@@ -383,6 +420,12 @@
 											{/snippet}
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Content align="end">
+											{#if pack.uuid}
+												<DropdownMenu.Item onSelect={() => openNote(pack)}>
+													<NotebookPenIcon />
+													{t('content.notes')}
+												</DropdownMenu.Item>
+											{/if}
 											<DropdownMenu.Item variant="destructive" onSelect={() => drop(pack)}>
 												<TrashIcon />
 												{t('content.remove')}
@@ -444,6 +487,16 @@
 		{/if}
 	</section>
 </div>
+
+<PackNoteDialog
+	serverId={server.id}
+	pack={noting}
+	bind:open={noteOpen}
+	canEdit={canConfigure}
+	canRun={canCommand}
+	{running}
+	onsaved={noted}
+/>
 
 <Dialog.Root
 	open={pending !== null}

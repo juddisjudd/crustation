@@ -13,7 +13,39 @@ export interface Pack {
 	activated: boolean;
 	/** Whether the server came with it, rather than anybody choosing it. */
 	stock: boolean;
+	/** What somebody wrote down about it, when anybody has. */
+	note?: PackNote | null;
 }
+
+/** A command worth a button, as whoever wrote the note labelled it. */
+export interface NoteCommand {
+	label: string;
+	command: string;
+}
+
+export interface PackNote {
+	text: string;
+	commands: NoteCommand[];
+}
+
+/** Something the pack looks like it answers to, read out of its own files. */
+export interface Suggestion {
+	kind: 'function' | 'scriptevent' | 'command' | 'setting';
+	label: string;
+	/** What to run. A setting is changed in the game, so it has none. */
+	command: string | null;
+	detail: string | null;
+}
+
+export interface NoteAndSuggestions extends PackNote {
+	suggestions: Suggestion[];
+}
+
+export const getPackNote = (serverId: string, packId: string) =>
+	api.get<NoteAndSuggestions>(`/servers/${serverId}/packs/notes/${packId}`);
+
+export const savePackNote = (serverId: string, packId: string, note: PackNote) =>
+	api.put<PackNote>(`/servers/${serverId}/packs/notes/${packId}`, note);
 
 export interface World {
 	/** What the world calls itself, which is what the player looks for. */

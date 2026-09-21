@@ -199,6 +199,340 @@ fn lang_value(line: &str, key: &str) -> Option<String> {
     Some(value.trim().to_string())
 }
 
+/// Something a pack can be told to do, found by reading it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Suggestion {
+    /// One of "function", "scriptevent", "command", or "setting" for what only
+    /// a player can change from inside the game.
+    pub kind: &'static str,
+    /// A short name, fit for a button.
+    pub label: String,
+    /// What to run, without a leading slash. A setting has none.
+    pub command: Option<String>,
+    /// What the pack says about it, where it says anything.
+    pub detail: Option<String>,
+}
+
+/// How many to offer before the list stops being a help.
+const MOST_SUGGESTIONS: usize = 40;
+
+/// What a pack looks like it answers to: the functions it ships, the script
+/// event ids its scripts watch for, the slash commands it registers, and the
+/// settings its manifest declares.
+///
+/// Starting points for a note, not a promise. A script can do anything; this
+/// reads the shapes packs usually take, and one that hides its own name behind
+/// a variable is read only as far as it can be.
+pub fn suggestions(pack: &Path) -> Vec<Suggestion> {
+    let mut out = functions(pack);
+    let scripts = script_text(pack);
+    out.extend(script_events(&scripts));
+    out.extend(slash_commands(&scripts));
+    out.extend(settings(pack));
+    out.dedup();
+    out.truncate(MOST_SUGGESTIONS);
+    out
+}
+
+/// An identifier as a person would read it: `forced_reset_chests` becomes
+/// `forced reset chests`.
+fn readable(name: &str) -> String {
+    let plain = name.rsplit(':').next().unwrap_or(name);
+    let spaced: String = plain
+        .chars()
+        .map(|one| if one == '_' { ' ' } else { one })
+        .collect();
+    spaced.trim().chars().take(48).collect()
+}
+
+/// Every file under `functions/`, except the ones `tick.json` already runs on
+/// its own.
+fn functions(pack: &Path) -> Vec<Suggestion> {
+    let root = pack.join("functions");
+    let ticking = ticking(&root);
+    let mut names: Vec<String> = walkdir::WalkDir::new(&root)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| {
+            let rest = entry.path().strip_prefix(&root).ok()?;
+            let parts: Vec<&str> = rest
+                .components()
+                .filter_map(|part| part.as_os_str().to_str())
+                .collect();
+            // The game names a function with a slash, whichever platform wrote it.
+            let joined = parts.join("/");
+            Some(joined.strip_suffix(".mcfunction")?.to_string())
+        })
+        .filter(|name| !ticking.contains(name))
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .map(|name| Suggestion {
+            kind: "function",
+            label: readable(name.rsplit('/').next().unwrap_or(&name)),
+            command: Some(format!("function {name}")),
+            detail: None,
+        })
+        .collect()
+}
+
+/// The functions a pack runs itself every tick, which nobody needs a button for.
+fn ticking(root: &Path) -> Vec<String> {
+    std::fs::read_to_string(root.join("tick.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|parsed| parsed.get("values").cloned())
+        .and_then(|values| serde_json::from_value::<Vec<String>>(values).ok())
+        .unwrap_or_default()
+}
+
+/// Every script in the pack, read as one. A bundler puts a pack's whole mind
+/// in one file, so there is rarely more than one to read.
+fn script_text(pack: &Path) -> String {
+    const MOST: usize = 8 * 1024 * 1024;
+    let mut out = String::new();
+    for entry in walkdir::WalkDir::new(pack.join("scripts"))
+        .into_iter()
+        .flatten()
+    {
+        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|one| one != "js") {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(entry.path()) {
+            out.push_str(&text);
+            out.push('\n');
+        }
+        if out.len() > MOST {
+            break;
+        }
+    }
+    out
+}
+
+/// True for the `namespace:name` shape an id has to have. Vanilla's own
+/// namespace is not a pack's to answer for.
+fn namespaced(value: &str) -> bool {
+    let Some((namespace, name)) = value.split_once(':') else {
+        return false;
+    };
+    let usable = |part: &str| {
+        !part.is_empty()
+            && part.len() < 64
+            && part
+                .chars()
+                .all(|one| one.is_ascii_alphanumeric() || one == '_' || one == '-' || one == '.')
+    };
+    namespace != "minecraft" && usable(namespace) && usable(name)
+}
+
+/// The string starting at `at`, if a quote is what starts there.
+fn literal_at(text: &str, at: usize) -> Option<String> {
+    let rest = text.get(at..)?;
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let body = rest.get(quote.len_utf8()..)?;
+    let end = body.find(quote)?;
+    Some(body[..end].to_string())
+}
+
+/// Where the value after a key and its colon begins, when that key is the
+/// nearest one there is.
+fn value_after(window: &str, key: &str) -> Option<usize> {
+    let at = window.find(key)? + key.len();
+    let rest = window.get(at..)?;
+    let colon = rest.find(':')?;
+    // A key and its colon sit together; anything between is a different key.
+    if !rest[..colon].trim_matches(['"', '\'', ' ']).is_empty() {
+        return None;
+    }
+    let after = rest.get(colon + 1..)?;
+    Some(at + colon + 1 + (after.len() - after.trim_start().len()))
+}
+
+/// The script event ids a script watches for. Read only where the script says
+/// it listens at all, since an `.id` is a common enough thing to compare.
+fn script_events(text: &str) -> Vec<Suggestion> {
+    if !text.contains("scriptEventReceive") {
+        return Vec::new();
+    }
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut push = |value: String| {
+        if namespaced(&value) && !ids.contains(&value) {
+            ids.push(value);
+        }
+    };
+
+    // An id compared where it is used, and the constant standing in for one.
+    for (at, _) in text.match_indices(".id") {
+        let Some(rest) = text.get(at + 3..) else {
+            continue;
+        };
+        let Some(equals) = rest.find("==") else {
+            continue;
+        };
+        if equals > 4 || !rest[..equals].trim().is_empty() {
+            continue;
+        }
+        let after = &rest[equals..];
+        let start = after.len() - after.trim_start_matches(['=', ' ']).len();
+        match literal_at(after, start) {
+            Some(found) => push(found),
+            None => {
+                let name: String = after[start..]
+                    .chars()
+                    .take_while(|one| one.is_alphanumeric() || *one == '_' || *one == '$')
+                    .collect();
+                if let Some(found) = declared(text, &name) {
+                    push(found);
+                }
+            }
+        }
+    }
+
+    // A switch over the id is the other way a script sorts them.
+    for (at, _) in text.match_indices("case ") {
+        if let Some(found) = literal_at(text, at + 5) {
+            push(found);
+        }
+    }
+
+    ids.into_iter()
+        .map(|id| Suggestion {
+            kind: "scriptevent",
+            label: readable(&id),
+            command: Some(format!("scriptevent {id}")),
+            detail: None,
+        })
+        .collect()
+}
+
+/// What a constant holds, for a script that names its ids rather than writing
+/// them where they are used.
+fn declared(text: &str, name: &str) -> Option<String> {
+    if name.is_empty() {
+        return None;
+    }
+    for (at, _) in text.match_indices(name) {
+        let before = text[..at].chars().next_back();
+        if before.is_some_and(|one| one.is_alphanumeric() || one == '_' || one == '$') {
+            continue;
+        }
+        let Some(rest) = text.get(at + name.len()..) else {
+            continue;
+        };
+        let Some(after) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        if after.starts_with('=') {
+            continue;
+        }
+        if let Some(found) = literal_at(after.trim_start(), 0) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The slash commands a script registers. A pack that loops over its own
+/// aliases hides the names behind a variable, so the strings just before the
+/// call are read too.
+fn slash_commands(text: &str) -> Vec<Suggestion> {
+    let mut out: Vec<Suggestion> = Vec::new();
+
+    for (at, _) in text.match_indices("registerCommand") {
+        let window = &text[at..text.len().min(at + 400)];
+        let detail = value_after(window, "description")
+            .and_then(|start| literal_at(window, start))
+            .filter(|one| !one.is_empty());
+
+        let mut names: Vec<String> = Vec::new();
+        if let Some(found) = value_after(window, "name").and_then(|start| literal_at(window, start))
+            && namespaced(&found)
+        {
+            names.push(found);
+        }
+        if names.is_empty() {
+            let back = &text[at.saturating_sub(300)..at];
+            let mut from = 0;
+            while let Some(next) = back[from..].find(['"', '\'']) {
+                let quote = from + next;
+                match literal_at(back, quote) {
+                    Some(found) => {
+                        from = quote + found.len() + 2;
+                        if namespaced(&found) && !names.contains(&found) {
+                            names.push(found);
+                        }
+                    }
+                    None => from = quote + 1,
+                }
+            }
+        }
+
+        if names.is_empty() {
+            // Worth saying a pack has one even when its name cannot be read.
+            if let Some(detail) = detail.clone() {
+                out.push(Suggestion {
+                    kind: "command",
+                    label: readable(&detail),
+                    command: None,
+                    detail: Some(detail),
+                });
+            }
+            continue;
+        }
+        for name in names {
+            out.push(Suggestion {
+                kind: "command",
+                label: readable(&name),
+                command: Some(name),
+                detail: detail.clone(),
+            });
+        }
+    }
+
+    out.dedup();
+    out
+}
+
+/// The settings a manifest declares, which are the world's to change rather
+/// than anything a console can run.
+fn settings(pack: &Path) -> Vec<Suggestion> {
+    let Ok(text) = std::fs::read_to_string(pack.join("manifest.json")) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    parsed
+        .get("settings")
+        .and_then(serde_json::Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter(|row| row.get("type").and_then(serde_json::Value::as_str) != Some("label"))
+                .filter_map(|row| row.get("text").and_then(serde_json::Value::as_str))
+                .map(|shown| {
+                    let named = match shown.contains(' ') {
+                        true => shown.to_string(),
+                        false => localized(pack, shown).unwrap_or_else(|| shown.to_string()),
+                    };
+                    Suggestion {
+                        kind: "setting",
+                        label: without_formatting(&named),
+                        command: None,
+                        detail: None,
+                    }
+                })
+                .filter(|one| !one.label.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Reads a Java `pack.mcmeta`, which says only that this is a pack at all.
 pub fn is_datapack(text: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(text)
@@ -949,6 +1283,129 @@ mod tests {
     fn a_script_module_is_still_a_behaviour_pack() {
         let text = BEHAVIOUR.replace("\"type\": \"data\"", "\"type\": \"script\"");
         assert_eq!(read_manifest(&text).expect("read").sort, Sort::Behaviour);
+    }
+
+    fn pack_for(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("crustation-scan-{label}"));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(root.join("functions").join("setup")).expect("functions");
+        std::fs::create_dir_all(root.join("scripts")).expect("scripts");
+        root
+    }
+
+    #[test]
+    fn functions_are_offered_except_the_ones_that_run_themselves() {
+        let pack = pack_for("functions");
+        let at = pack.join("functions");
+        std::fs::write(at.join("forced_reset_truck.mcfunction"), "say hi").expect("one");
+        std::fs::write(at.join("every_tick.mcfunction"), "say tick").expect("two");
+        std::fs::write(at.join("setup").join("start.mcfunction"), "say start").expect("three");
+        std::fs::write(at.join("tick.json"), r#"{"values":["every_tick"]}"#).expect("tick");
+
+        let found = suggestions(&pack);
+        let commands: Vec<&str> = found
+            .iter()
+            .filter_map(|one| one.command.as_deref())
+            .collect();
+        assert_eq!(
+            commands,
+            ["function forced_reset_truck", "function setup/start"]
+        );
+        assert_eq!(found[0].label, "forced reset truck");
+        std::fs::remove_dir_all(&pack).ok();
+    }
+
+    #[test]
+    fn script_event_ids_are_read_through_a_constant_or_a_switch() {
+        let pack = pack_for("events");
+        std::fs::write(
+            pack.join("scripts").join("main.js"),
+            r#"
+            const SWITCH_ID = "pj:magnet_switch";
+            system.afterEvents.scriptEventReceive.subscribe((event) => {
+              if (event.id === SWITCH_ID) { flip(); }
+              if (event.id === "pj:magnet_status") { report(); }
+              switch (event.id) { case "pj:magnet_reset": reset(); }
+              if (block.id === "minecraft:stone") { return; }
+            });
+            "#,
+        )
+        .expect("script");
+
+        let found = suggestions(&pack);
+        let ids: Vec<&str> = found
+            .iter()
+            .filter(|one| one.kind == "scriptevent")
+            .filter_map(|one| one.command.as_deref())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "scriptevent pj:magnet_switch",
+                "scriptevent pj:magnet_status",
+                "scriptevent pj:magnet_reset"
+            ]
+        );
+        std::fs::remove_dir_all(&pack).ok();
+    }
+
+    #[test]
+    fn a_script_that_never_listens_offers_no_events() {
+        let pack = pack_for("quiet");
+        std::fs::write(
+            pack.join("scripts").join("main.js"),
+            r#"if (item.id === "pj:wand") { wave(); }"#,
+        )
+        .expect("script");
+        assert!(suggestions(&pack).is_empty());
+        std::fs::remove_dir_all(&pack).ok();
+    }
+
+    #[test]
+    fn a_slash_command_is_read_even_when_its_names_are_a_list() {
+        let pack = pack_for("commands");
+        std::fs::write(
+            pack.join("scripts").join("main.js"),
+            r#"
+            for (let t of ["ztp:health-bars","ztp:hb"]) registry.registerCommand({name:t,description:"Open Health Bars settings"}, run);
+            registry.registerCommand({ name: "pj:magnet", description: "Magnet settings" }, run);
+            "#,
+        )
+        .expect("script");
+
+        let read = suggestions(&pack);
+        let found: Vec<(&str, Option<&str>)> = read
+            .iter()
+            .filter(|one| one.kind == "command")
+            .map(|one| (one.label.as_str(), one.command.as_deref()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("health-bars", Some("ztp:health-bars")),
+                ("hb", Some("ztp:hb")),
+                ("magnet", Some("pj:magnet")),
+            ]
+        );
+        assert_eq!(read[0].detail.as_deref(), Some("Open Health Bars settings"));
+        std::fs::remove_dir_all(&pack).ok();
+    }
+
+    #[test]
+    fn the_settings_a_manifest_declares_are_named_but_not_runnable() {
+        let pack = pack_for("settings");
+        std::fs::write(
+            pack.join("manifest.json"),
+            r#"{"settings":[{"type":"label","text":"Configure"},{"type":"toggle","text":"Enable item magnet"}]}"#,
+        )
+        .expect("manifest");
+
+        let found = suggestions(&pack);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind, "setting");
+        assert_eq!(found[0].label, "Enable item magnet");
+        assert!(found[0].command.is_none());
+        std::fs::remove_dir_all(&pack).ok();
     }
 
     #[test]

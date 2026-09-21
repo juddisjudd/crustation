@@ -325,6 +325,8 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | DELETE           | `/servers/{id}/packs`                                    | `{path}` removes an installed pack: its files, and its id from every world that names it. `{uuid, world}` instead takes an id out of one world's list, for an entry with no pack behind it. `404` if neither is found. Requires `FILES`. |
 | POST             | `/servers/{id}/packs`                                    | `{path, activate, world, use_world}` installs an add-on already in the server folder. Returns `{installed, world, level_name, restart_required}`. Requires `FILES`. |
 | POST             | `/servers/{id}/packs/upload?name=&activate=&world=&use_world=` | The archive itself as the body, unpacked without ever landing in the server folder. Same reply. Requires `FILES`. |
+| GET              | `/servers/{id}/packs/notes/{pack-uuid}`                  | `{text, commands: [{label, command}], suggestions: [{kind, label, command, detail}]}`. The note, and what the pack itself looks like it answers to. Requires `FILES`. |
+| PUT              | `/servers/{id}/packs/notes/{pack-uuid}`                  | `{text, commands}` saves it; a note with neither is forgotten rather than stored empty. Requires `CONFIG`. |
 | GET              | `/servers/{id}/worlds`                                   | `{worlds: [{name, folder, path}], level_name}`. A world is a folder holding a `level.dat`. Requires `FILES`. |
 | PUT              | `/servers/{id}/worlds`                                   | `{folder}` points `level-name` at a world the server already keeps. Requires `FILES`. |
 | GET/POST/DELETE  | `/servers/{id}/bridge`                                   | The Crustation add-on on a Bedrock server. `GET` needs `CONSOLE`, the rest `CONFIG`. Java answers `409 CONFLICT`: it has RCON. |
@@ -352,6 +354,17 @@ nested inside it, and both shapes are handled.
   that call themselves the same thing get separate folders, the second marked with its own id.
   Letting them share would mean the second deleted the first while both stayed in the world's
   list, and the server would start up saying a configured pack was not found.
+- Each pack carries a `note`, or `null`: what somebody wrote down about it and the commands worth
+  a button. Plenty of add-ons need something run in the game before they do anything, and the pack
+  is the only place that says so. Notes are per server, keyed by the pack's id, so an update or a
+  reinstall into another folder keeps one. Running a command is the ordinary `POST
+  /servers/{id}/command`, so it needs `COMMANDS` and it runs as the server: one aimed at `@s` or
+  `@p` still wants typing in the game.
+- `suggestions` are read out of the pack itself, as starting points rather than a promise: every
+  `functions/` file except the ones `tick.json` already runs, the script event ids its scripts
+  compare against, the slash commands they register, and the settings its manifest declares. A
+  `setting` has no `command`, since the world is where it is changed. A script that hides its own
+  names behind variables is read only as far as it can be.
 - `missing` is the other half of that: ids the world's lists name with no pack behind them, which
   is exactly what the server reports once at startup and then never again. `DELETE` on the same
   path takes one out of the list; the pack's own folder, if it has one, is untouched.
@@ -542,6 +555,7 @@ claude mcp add --transport http crustation https://panel.example.com/mcp \
 | `panel_overview`  | —                           | —          |
 
 `server` is a server's id or its name, because a name is what an assistant has to hand.
+`list_packs` carries each pack's note, so a pack's setup steps come back with the pack.
 `read_file` refuses anything binary or over 256 KB rather than guessing at it, and every path is
 checked the same way the file API checks one. `write_file` replaces the file rather than adding to
 it, makes the folders along the path, refuses a folder, and stops at the same 256 KB, so nothing

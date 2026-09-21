@@ -81,7 +81,7 @@ struct Write {
     position: Option<i64>,
 }
 
-fn checked(label: &str, command: &str) -> Result<(String, String), ApiError> {
+pub(crate) fn checked(label: &str, command: &str) -> Result<(String, String), ApiError> {
     let label = label.trim();
     let command = command.trim();
     if label.is_empty() {

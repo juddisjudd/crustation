@@ -683,8 +683,8 @@ impl Crustation {
     }
 
     /// The add-ons installed on a server, read off the folders rather than out
-    /// of a register, so one dropped in by hand is listed too. Needs the FILES
-    /// permission.
+    /// of a register, so one dropped in by hand is listed too, with whatever
+    /// note has been written about each. Needs the FILES permission.
     #[tool]
     async fn list_packs(
         &self,
@@ -702,7 +702,10 @@ impl Crustation {
         })
         .await
         .map_err(internal)?;
-        Ok(Json(serde_json::json!({ "packs": found })))
+        let packs = crate::api::pack_notes::attach(&self.state, row.uuid(), found)
+            .await
+            .map_err(internal)?;
+        Ok(Json(serde_json::json!({ "packs": packs })))
     }
 
     /// The panel itself: how long it has been up, how many servers it holds, and
