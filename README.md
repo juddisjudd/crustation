@@ -72,7 +72,7 @@ Not there yet: backups and webhooks.
 ### Docker
 
 ```bash
-docker run -d --name crustation \
+docker run -d --name crustation --stop-timeout 120 \
   -p 8080:8080 -p 25565:25565 -p 19132:19132/udp \
   -p 28015:28015/udp -p 28017:28017/udp -p 28083:28083 \
   -v /srv/crustation/config:/config \
@@ -84,6 +84,11 @@ docker run -d --name crustation \
 
 `docker-compose.yml` does the same thing. The image carries Java 8, 11, 17, 21 and 25, and each
 Minecraft server starts on whichever one its version asks for.
+
+Stopping or updating the container stops every game server first, all at once, so each can save.
+A server gets its shutdown timeout, 60 seconds unless you changed it, before it is killed. Docker
+only waits 10 seconds by default, which is why the examples raise it to 120. Keep it above the
+longest shutdown timeout you set.
 
 A Rust server takes its game port and the query port two above it, both UDP: 28015 and 28017 for
 the first one. The Rust+ phone app reaches it on TCP 28083, the game port plus 68. SteamCMD only exists for x86, so Rust needs an amd64 host, and a server wants
@@ -100,7 +105,9 @@ Community Applications already indexes. Two ways to add it:
 - **Community Applications → Additional Repositories**, then add that repository
 
 It maps config, servers and backups as three shares and honours `PUID` and `PGID`, so files stay
-owned by your Unraid user rather than root.
+owned by your Unraid user rather than root. Its Extra Parameters carry `--stop-timeout=120`; a
+container added from an older copy of the template should have that set by hand, under Advanced
+View.
 
 ### From source
 

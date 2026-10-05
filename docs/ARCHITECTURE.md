@@ -30,6 +30,8 @@ their stdin/stdout, which keeps the console honest and the deployment a single c
   (`Stopped → Starting → Running → Stopping → Stopped`, plus `Crashed`). Stdout and stderr are read
   line by line into a bounded ring buffer (the console backlog) and published on the event bus. A
   stop sends the configured stop command, waits `shutdown_timeout`, then escalates to a kill.
+  When the panel itself is told to stop, it stops every running server at once and exits after the
+  last one, so the container's stop timeout only has to cover the slowest save.
 - **Crash handling.** An exit that was not requested, and whose code is not in `ignored_exits`,
   marks the server crashed and, when crash detection is on, restarts it with a backoff.
 - **Installs.** Creating a server writes the row and returns; a background task then resolves the

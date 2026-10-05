@@ -606,12 +606,9 @@ impl Supervisor {
 
     /// Stops everything still running, for a clean shutdown.
     pub async fn stop_all(&self) {
-        let ids: Vec<Uuid> = self.instances.read().await.keys().copied().collect();
-        for id in ids {
-            if self.state(id).await.is_live() {
-                let _ = self.stop(id).await;
-            }
-        }
+        // All at once, so the wait is the slowest save rather than the sum of them, inside Docker's stop timeout.
+        let running = self.running_ids().await;
+        futures::future::join_all(running.into_iter().map(|id| self.stop(id))).await;
     }
 
     pub async fn running_ids(&self) -> Vec<Uuid> {

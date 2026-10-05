@@ -5,6 +5,8 @@ services:
     build: .
     container_name: crustation
     restart: unless-stopped
+    # Stopping the container stops every game server first, each allowed its shutdown timeout (60s by default).
+    stop_grace_period: 2m
     ports:
       - "8080:8080"
       - "25565:25565"
