@@ -10,6 +10,11 @@ pub mod players;
 pub mod properties;
 pub mod providers;
 pub mod roles;
+pub mod rust_hooks;
+pub mod rust_moderation;
+pub mod rust_mods;
+pub mod rust_players;
+pub mod schedules;
 pub mod servers;
 pub mod users;
 pub mod ws;
@@ -32,6 +37,8 @@ pub fn router() -> Router<AppState> {
         .nest("/users", users::routes())
         .nest("/roles", roles::routes())
         .nest("/bridge", bridge::public_routes())
+        .nest("/rust-hooks", rust_hooks::public_routes())
+        .nest("/rust-bans", rust_moderation::panel_routes())
         .route("/health", get(health))
 }
 

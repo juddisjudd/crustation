@@ -147,10 +147,23 @@ async fn ping_all(state: &AppState) -> HashMap<Uuid, crate::ping::Status> {
 /// the whole list, and none at all when `hide-online-players` is set, so this is
 /// what the server was willing to say and not a register.
 async fn remember_players(state: &AppState, id: Uuid, kind: &str, status: &crate::ping::Status) {
-    // A Bedrock pong carries counts and never names, so there is nothing here
-    // to mark anybody with. Clearing anyway would wipe what the console and
-    // the add-on worked out and put nothing back in its place.
-    if kind == "minecraft_bedrock" {
+    // Rust's query has counts only, but websocket RCON names everybody without a trace in the console.
+    if kind == crate::rust_game::KIND {
+        crate::rust_players::relay_chat(state, id);
+        let online = match status.players_online {
+            0 => Vec::new(),
+            _ => match state.supervisor.ask(id, "playerlist").await {
+                Ok(json) => crate::rust_players::parse_online(&json),
+                Err(_) => return,
+            },
+        };
+        crate::rust_players::remember(&state.db, id, &online).await;
+        return;
+    }
+    // A Bedrock pong carries counts and never names, so there is nothing here to
+    // mark anybody with. Clearing anyway would wipe what the console and the add-on
+    // worked out and put nothing back in its place.
+    if kind != "minecraft_java" {
         return;
     }
 

@@ -10,6 +10,10 @@ services:
       - "25565:25565"
       - "19132:19132/udp"
       - "25500-25600:25500-25600"
+      # Rust: game and query, then the Rust+ app. RCON stays on the loopback.
+      - "28015:28015/udp"
+      - "28017:28017/udp"
+      - "28083:28083"
     environment:
       PUID: 1000
       PGID: 1000

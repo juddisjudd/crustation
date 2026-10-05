@@ -1,6 +1,5 @@
 export const content = {
 	title: 'Add-ons and worlds',
-	hint: 'Install a pack or bring in a world. Both take effect the next time the server starts.',
 
 	installAddon: 'Install add-on',
 	importWorld: 'Import world',
@@ -10,12 +9,10 @@ export const content = {
 
 	packs: 'Installed add-ons',
 	noPacks: 'Nothing installed yet.',
-	noPacksHint: 'Install an add-on and it will show up here, with the world it is switched on for.',
 	showStock: 'Show the ones the server came with',
 	stockHidden: '{count} hidden that Bedrock ships with itself',
 	stock: 'Shipped',
 	onlyStock: 'Only the packs the server came with.',
-	onlyStockHint: 'Nothing has been added to this server yet.',
 	worlds: 'Worlds',
 	noWorlds: 'No worlds yet.',
 	noWorldsHint: 'Start the server once and it will make one, or import a world here.',
@@ -24,6 +21,7 @@ export const content = {
 	inactive: 'Not loaded',
 	playing: 'Being played',
 	playThis: 'Play this world',
+	name: 'Name',
 	folder: 'Folder',
 	version: 'Version {version}',
 
@@ -41,7 +39,6 @@ export const content = {
 	cancel: 'Cancel',
 
 	useWorld: 'Play this world once it is in',
-	useWorldHint: 'Points level-name at it. Leave it off to import the world without switching.',
 
 	installed: 'Installed {names}',
 	installedWhere: 'It loads the next time the server starts.',
@@ -95,7 +92,6 @@ export const content = {
 	notesPlayerWarning:
 		'These run as the server, not as a player. A command aimed at @s or @p wants typing in the game instead.',
 	notesFound: 'Found in this pack',
-	notesFoundBody: 'Read out of the pack itself, so it is a starting point rather than a promise.',
 	notesAdd: 'Add',
 	notesKindFunction: 'Functions',
 	notesKindScriptevent: 'Script events',

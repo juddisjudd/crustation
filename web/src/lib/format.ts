@@ -73,8 +73,10 @@ export function relativeTime(date: Date | null) {
 	return '—';
 }
 
-const KNOWN_KINDS = ['minecraft_java', 'minecraft_bedrock'];
+const KNOWN_KINDS = ['minecraft_java', 'minecraft_bedrock', 'rust'];
 
 export function kindLabel(kind: string) {
 	return KNOWN_KINDS.includes(kind) ? t(`common.server.kind.${kind}` as MessageKey) : kind;
 }
+
+export const isMinecraft = (kind: string) => kind.startsWith('minecraft_');

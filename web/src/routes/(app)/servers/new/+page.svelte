@@ -17,7 +17,8 @@
 	import * as Field from '$lib/components/ui/field/index.js';
 	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
-	import * as Tabs from '$lib/components/ui/tabs/index.js';
+	import GameLogo from '$lib/components/servers/game-logo.svelte';
+	import RustTags from '$lib/components/servers/rust-tags.svelte';
 	import { ApiError } from '$lib/api/client';
 	import { errorMessage } from '$lib/api/servers';
 	import {
@@ -37,11 +38,20 @@
 	import { servers } from '$lib/servers.svelte';
 	import { session } from '$lib/session.svelte';
 	import { socket } from '$lib/realtime/socket.svelte';
-	import { kindLabel } from '$lib/format';
+	import { isMinecraft, kindLabel } from '$lib/format';
 	import { t, type MessageKey } from '$lib/i18n/index.svelte';
 
 	let { data } = $props();
 
+	type Game = 'minecraft' | 'rust';
+	const games: { id: Game; name: string }[] = [
+		{ id: 'minecraft', name: 'Minecraft' },
+		{ id: 'rust', name: 'Rust' }
+	];
+	const gameOf = (kind: string): Game => (isMinecraft(kind) ? 'minecraft' : 'rust');
+
+	// Nothing is chosen until the operator says so; the rest of the form follows from it.
+	let game = $state<Game | null>(null);
 	let tab = $state<'install' | 'import'>('install');
 	// A starting point only; the operator owns the choice after that.
 	let providerId = $state(untrack(() => data.providers[0]?.id ?? ''));
@@ -87,10 +97,41 @@
 	let progress = $state.raw<InstallProgress | null>(null);
 
 	const provider = $derived(data.providers.find((entry) => entry.id === providerId));
+	const editions = $derived(
+		[
+			{ kind: 'minecraft_java', label: t('create.type.java') },
+			{ kind: 'minecraft_bedrock', label: t('create.type.bedrock') }
+		]
+			.map((edition) => ({
+				...edition,
+				providers: data.providers.filter((entry) => entry.kind === edition.kind)
+			}))
+			.filter((edition) => edition.providers.length)
+	);
+
+	function pick(next: Game) {
+		game = next;
+		tab = 'install';
+		if (provider && gameOf(provider.kind) === next) return;
+		const first = data.providers.find((entry) => gameOf(entry.kind) === next);
+		if (first) providerId = first.id;
+	}
+
+	// One radio group covers the downloads and the import, so the choice reads as one list.
+	const chosen = () => (tab === 'import' ? 'import' : providerId);
+	function choose(value: string) {
+		if (value === 'import') {
+			tab = 'import';
+			return;
+		}
+		tab = 'install';
+		providerId = value;
+	}
 	const kind = $derived<ServerKind>(
 		tab === 'install' ? (provider?.kind ?? 'minecraft_java') : importKind
 	);
 	const needsJava = $derived(kind === 'minecraft_java');
+	const needsEula = $derived(isMinecraft(kind));
 	const defaultPort = $derived(
 		tab === 'install'
 			? (provider?.default_port ?? 25565)
@@ -128,7 +169,7 @@
 	const valueOf = (entry: KnownProperty) => settings[entry.key] ?? entry.default;
 
 	const ready = $derived.by(() => {
-		if (!name.trim() || !eula) return false;
+		if (!game || !name.trim() || (needsEula && !eula)) return false;
 		if (tab === 'install') return !!version;
 		if (importMode === 'zip') return !!uploadId;
 		if (importMode === 'folder') return !!folderPath.trim();
@@ -137,7 +178,7 @@
 
 	$effect(() => {
 		const wanted = providerId;
-		if (tab !== 'install' || !wanted) return;
+		if (!game || tab !== 'install' || !wanted) return;
 
 		versionsLoading = true;
 		versionsError = '';
@@ -237,7 +278,7 @@
 				host: host.trim() || '0.0.0.0',
 				port: port ?? defaultPort,
 				autostart,
-				agree_to_eula: eula,
+				agree_to_eula: needsEula && eula,
 				source: source()
 			};
 			if (needsJava) {
@@ -276,14 +317,17 @@
 
 <svelte:head><title>{t('create.title')} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-3xl px-4 py-8 md:px-8">
+<div class="page py-6">
 	{#if createdId}
 		{@const phase = progress?.phase}
 		{@const failed = phase === 'failed'}
 		{@const done = phase === 'done'}
+		{@const label = phase
+			? t(`create.progress.${phase}` as MessageKey)
+			: t('create.progress.waiting')}
 		<PageHeader title={t('create.progress.title', { name: createdName })} />
 
-		<div class="mt-8 rounded-lg border bg-card p-6">
+		<div class="mt-6 max-w-3xl rounded-lg border bg-card p-6">
 			<div class="flex items-center gap-3">
 				{#if failed}
 					<AlertTriangleIcon class="size-5 text-destructive" />
@@ -293,10 +337,8 @@
 					<Spinner class="size-5" />
 				{/if}
 				<div class="min-w-0 flex-1">
-					<p class="font-medium">
-						{phase ? t(`create.progress.${phase}` as MessageKey) : t('create.progress.waiting')}
-					</p>
-					{#if progress?.message && !done}
+					<p class="font-medium">{label}</p>
+					{#if progress?.message && !done && progress.message.replace(/\.$/, '') !== label}
 						<p class="mt-0.5 truncate text-sm text-muted-foreground">{progress.message}</p>
 					{/if}
 				</div>
@@ -315,431 +357,475 @@
 			</div>
 		</div>
 	{:else}
-		<PageHeader title={t('create.title')} description={t('create.description')} />
+		<PageHeader title={t('create.title')} />
 
 		<form
-			class="mt-8 space-y-6"
+			class="mt-6 grid items-start gap-6 xl:grid-cols-2"
 			onsubmit={(event) => {
 				event.preventDefault();
 				submit();
 			}}
 		>
-			<section class="rounded-lg border bg-card p-6">
-				<h2 class="text-base font-semibold tracking-tight">{t('create.source.title')}</h2>
+			<section class="rounded-lg border bg-card p-6 xl:col-span-2">
+				<h2 class="text-base font-semibold tracking-tight">{t('create.game.title')}</h2>
+				<div class="mt-4 grid max-w-3xl gap-4 sm:grid-cols-2">
+					{#each games as entry (entry.id)}
+						<button
+							type="button"
+							aria-pressed={game === entry.id}
+							onclick={() => pick(entry.id)}
+							class="flex items-center gap-5 rounded-lg border p-5 text-left transition-colors outline-none hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-accent/40 aria-pressed:ring-1 aria-pressed:ring-primary"
+						>
+							<span class="grid size-20 shrink-0 place-items-center rounded-lg bg-muted">
+								<GameLogo game={entry.id} class="size-12" />
+							</span>
+							<span class="min-w-0 text-xl font-semibold tracking-tight">{entry.name}</span>
+						</button>
+					{/each}
+				</div>
+			</section>
 
-				<Tabs.Root bind:value={tab} class="mt-4">
-					<Tabs.List>
-						<Tabs.Trigger value="install">{t('create.tabs.install')}</Tabs.Trigger>
-						<Tabs.Trigger value="import">{t('create.tabs.import')}</Tabs.Trigger>
-					</Tabs.List>
+			{#if game}
+				<section class="space-y-5 rounded-lg border bg-card p-6">
+					<h2 class="text-base font-semibold tracking-tight">
+						{game === 'minecraft' ? t('create.type.title') : t('create.source.branch')}
+					</h2>
 
-					<Tabs.Content value="install" class="mt-4 space-y-4">
-						<p class="text-sm text-muted-foreground">{t('create.source.installDescription')}</p>
-
-						<RadioGroup.Root bind:value={providerId} class="grid gap-3 sm:grid-cols-2">
-							{#each data.providers as entry (entry.id)}
-								<Label
-									class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-data-checked:border-primary"
-								>
-									<RadioGroup.Item value={entry.id} class="mt-0.5" />
-									<span class="min-w-0 space-y-0.5">
-										<span class="block font-medium">{entry.name}</span>
-										<span class="block text-xs font-normal text-muted-foreground">
-											{entry.summary}
-										</span>
-									</span>
-								</Label>
-							{/each}
-						</RadioGroup.Root>
-
-						<Field.Field>
-							<Field.Label for="version">{t('create.source.version')}</Field.Label>
-							{#if versionsLoading}
-								<p class="text-sm text-muted-foreground">{t('create.source.loadingVersions')}</p>
-							{:else if versionsError}
-								<p class="text-sm text-destructive">
-									{t('create.source.versionsFailed', { provider: provider?.name ?? providerId })}
-								</p>
-							{:else}
-								<Select.Root type="single" bind:value={version}>
-									<Select.Trigger id="version" class="w-full">{versionLabel}</Select.Trigger>
-									<Select.Content>
-										{#each shown as entry (entry.id)}
-											<Select.Item value={entry.id} label={entry.label} />
-										{:else}
-											<Select.Item value="" label={t('create.source.noVersions')} disabled />
+					{#if game === 'minecraft'}
+						<RadioGroup.Root bind:value={chosen, choose} class="gap-5">
+							{#each editions as edition (edition.kind)}
+								<div class="space-y-2">
+									<h3 class="text-sm font-medium text-muted-foreground">{edition.label}</h3>
+									<div class="grid gap-3 sm:grid-cols-2">
+										{#each edition.providers as entry (entry.id)}
+											{@render option(entry.id, entry.name, entry.summary)}
 										{/each}
-									</Select.Content>
-								</Select.Root>
-							{/if}
-							<Label class="mt-1 font-normal text-muted-foreground">
-								<Checkbox bind:checked={showUnstable} />
-								{t('create.source.showUnstable')}
-							</Label>
-						</Field.Field>
-					</Tabs.Content>
-
-					<Tabs.Content value="import" class="mt-4 space-y-4">
-						<p class="text-sm text-muted-foreground">{t('create.source.importDescription')}</p>
-
-						<Field.Field>
-							<Field.Label>{t('create.import.mode')}</Field.Label>
-							<RadioGroup.Root bind:value={importMode} class="gap-2">
-								<Label class="font-normal">
-									<RadioGroup.Item value="zip" />
-									{t('create.import.modeZip')}
-								</Label>
-								<Label class="font-normal">
-									<RadioGroup.Item value="folder" disabled={!session.superuser} />
-									{t('create.import.modeFolder')}
-								</Label>
-								<Label class="font-normal">
-									<RadioGroup.Item value="url" />
-									{t('create.import.modeUrl')}
-								</Label>
-							</RadioGroup.Root>
-						</Field.Field>
-
-						<Field.Field>
-							<Field.Label>{t('create.import.kind')}</Field.Label>
-							<RadioGroup.Root bind:value={importKind} class="gap-2">
-								{#each ['minecraft_java', 'minecraft_bedrock'] as option (option)}
-									<Label class="font-normal">
-										<RadioGroup.Item value={option} />
-										{kindLabel(option)}
-									</Label>
-								{/each}
-							</RadioGroup.Root>
-						</Field.Field>
-
-						{#if importMode === 'zip'}
-							<Field.Field>
-								<Field.Label for="archive">{t('create.import.file')}</Field.Label>
-								<div class="flex items-center gap-3">
-									<input
-										id="archive"
-										type="file"
-										accept=".zip,application/zip"
-										onchange={onFile}
-										class="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium"
-									/>
-									{#if uploading}<Spinner class="size-4 shrink-0" />{/if}
+									</div>
 								</div>
-								{#if uploadId}
-									<Field.Description class="inline-flex items-center gap-1.5">
-										<UploadIcon class="size-3.5" />
-										{t('create.import.uploaded', { name: uploadName })}
-									</Field.Description>
+							{/each}
+							<div class="space-y-2">
+								<h3 class="text-sm font-medium text-muted-foreground">{t('create.type.other')}</h3>
+								<div class="grid gap-3 sm:grid-cols-2">
+									{@render option('import', t('create.type.import'))}
+								</div>
+							</div>
+						</RadioGroup.Root>
+					{/if}
+
+					{#if tab === 'install'}
+						<div class="space-y-4">
+							<Field.Field>
+								<Field.Label for="version" class={game === 'rust' ? 'sr-only' : undefined}>
+									{game === 'rust' ? t('create.source.branch') : t('create.source.version')}
+								</Field.Label>
+								{#if versionsLoading}
+									<p class="text-sm text-muted-foreground">{t('create.source.loadingVersions')}</p>
+								{:else if versionsError}
+									<p class="text-sm text-destructive">
+										{t('create.source.versionsFailed', { provider: provider?.name ?? providerId })}
+									</p>
 								{:else}
-									<Field.Description>{t('create.import.uploadHint')}</Field.Description>
+									<Select.Root type="single" bind:value={version}>
+										<Select.Trigger id="version" class="w-full">{versionLabel}</Select.Trigger>
+										<Select.Content>
+											{#each shown as entry (entry.id)}
+												<Select.Item value={entry.id} label={entry.label} />
+											{:else}
+												<Select.Item value="" label={t('create.source.noVersions')} disabled />
+											{/each}
+										</Select.Content>
+									</Select.Root>
 								{/if}
+								<Label class="mt-1 font-normal text-muted-foreground">
+									<Checkbox bind:checked={showUnstable} />
+									{game === 'rust'
+										? t('create.source.showUnstableRust')
+										: t('create.source.showUnstable')}
+								</Label>
+							</Field.Field>
+						</div>
+					{:else}
+						<div class="space-y-4 border-t pt-4">
+							<Field.Field>
+								<Field.Label>{t('create.import.mode')}</Field.Label>
+								<RadioGroup.Root bind:value={importMode} class="gap-2">
+									<Label class="font-normal">
+										<RadioGroup.Item value="zip" />
+										{t('create.import.modeZip')}
+									</Label>
+									<Label class="font-normal">
+										<RadioGroup.Item value="folder" disabled={!session.superuser} />
+										{t('create.import.modeFolder')}
+									</Label>
+									<Label class="font-normal">
+										<RadioGroup.Item value="url" />
+										{t('create.import.modeUrl')}
+									</Label>
+								</RadioGroup.Root>
 							</Field.Field>
 
-							{#if uploadId}
-								<Field.Field>
-									<Field.Label>{t('create.import.root')}</Field.Label>
-									<RadioGroup.Root bind:value={internalPath} class="gap-2">
+							<Field.Field>
+								<Field.Label>{t('create.import.kind')}</Field.Label>
+								<RadioGroup.Root bind:value={importKind} class="gap-2">
+									{#each ['minecraft_java', 'minecraft_bedrock'] as option (option)}
 										<Label class="font-normal">
-											<RadioGroup.Item value="" />
-											{t('create.import.rootTop')}
+											<RadioGroup.Item value={option} />
+											{kindLabel(option)}
 										</Label>
-										{#each roots.filter((root) => root.path) as root (root.path)}
+									{/each}
+								</RadioGroup.Root>
+							</Field.Field>
+
+							{#if importMode === 'zip'}
+								<Field.Field>
+									<Field.Label for="archive">{t('create.import.file')}</Field.Label>
+									<div class="flex items-center gap-3">
+										<input
+											id="archive"
+											type="file"
+											accept=".zip,application/zip"
+											onchange={onFile}
+											class="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium"
+										/>
+										{#if uploading}<Spinner class="size-4 shrink-0" />{/if}
+									</div>
+									{#if uploadId}
+										<Field.Description class="inline-flex items-center gap-1.5">
+											<UploadIcon class="size-3.5" />
+											{t('create.import.uploaded', { name: uploadName })}
+										</Field.Description>
+									{/if}
+								</Field.Field>
+
+								{#if uploadId}
+									<Field.Field>
+										<Field.Label>{t('create.import.root')}</Field.Label>
+										<RadioGroup.Root bind:value={internalPath} class="gap-2">
 											<Label class="font-normal">
-												<RadioGroup.Item value={root.path} />
-												<span class="font-mono text-xs">{root.path}</span>
+												<RadioGroup.Item value="" />
+												{t('create.import.rootTop')}
 											</Label>
-										{/each}
-									</RadioGroup.Root>
-									<Field.Description>
-										{roots.length ? t('create.import.rootHint') : t('create.import.rootsEmpty')}
-									</Field.Description>
+											{#each roots.filter((root) => root.path) as root (root.path)}
+												<Label class="font-normal">
+													<RadioGroup.Item value={root.path} />
+													<span class="font-mono text-xs">{root.path}</span>
+												</Label>
+											{/each}
+										</RadioGroup.Root>
+										<Field.Description>
+											{roots.length ? t('create.import.rootHint') : t('create.import.rootsEmpty')}
+										</Field.Description>
+									</Field.Field>
+								{/if}
+							{:else if importMode === 'folder'}
+								<Field.Field data-invalid={!!fieldErrors['source.path']}>
+									<Field.Label for="folder">{t('create.import.path')}</Field.Label>
+									<Input
+										id="folder"
+										bind:value={folderPath}
+										placeholder="/mnt/user/appdata/minecraft"
+										class="font-mono"
+									/>
+									{#if fieldErrors['source.path']}
+										<Field.Error>{fieldErrors['source.path']}</Field.Error>
+									{:else}
+										<Field.Description>
+											{session.superuser
+												? t('create.import.pathHint')
+												: t('create.import.pathAdminOnly')}
+										</Field.Description>
+									{/if}
+								</Field.Field>
+							{:else}
+								<Field.Field data-invalid={!!fieldErrors['source.url']}>
+									<Field.Label for="url">{t('create.import.url')}</Field.Label>
+									<Input
+										id="url"
+										bind:value={downloadUrl}
+										placeholder="https://example.com/server.zip"
+										class="font-mono"
+									/>
+									{#if fieldErrors['source.url']}
+										<Field.Error>{fieldErrors['source.url']}</Field.Error>
+									{:else}
+										<Field.Description>{t('create.import.urlHint')}</Field.Description>
+									{/if}
 								</Field.Field>
 							{/if}
-						{:else if importMode === 'folder'}
-							<Field.Field data-invalid={!!fieldErrors['source.path']}>
-								<Field.Label for="folder">{t('create.import.path')}</Field.Label>
-								<Input
-									id="folder"
-									bind:value={folderPath}
-									placeholder="/mnt/user/appdata/minecraft"
-									class="font-mono"
-								/>
-								{#if fieldErrors['source.path']}
-									<Field.Error>{fieldErrors['source.path']}</Field.Error>
-								{:else}
-									<Field.Description>
-										{session.superuser
-											? t('create.import.pathHint')
-											: t('create.import.pathAdminOnly')}
-									</Field.Description>
-								{/if}
-							</Field.Field>
-						{:else}
-							<Field.Field data-invalid={!!fieldErrors['source.url']}>
-								<Field.Label for="url">{t('create.import.url')}</Field.Label>
-								<Input
-									id="url"
-									bind:value={downloadUrl}
-									placeholder="https://example.com/server.zip"
-									class="font-mono"
-								/>
-								{#if fieldErrors['source.url']}
-									<Field.Error>{fieldErrors['source.url']}</Field.Error>
-								{:else}
-									<Field.Description>{t('create.import.urlHint')}</Field.Description>
-								{/if}
-							</Field.Field>
-						{/if}
 
-						<Field.Field>
-							<Field.Label for="executable">{t('create.import.executable')}</Field.Label>
-							<Input
-								id="executable"
-								bind:value={executable}
-								placeholder="server.jar"
-								class="font-mono"
-							/>
-							<Field.Description>{t('create.import.executableHint')}</Field.Description>
-						</Field.Field>
-					</Tabs.Content>
-				</Tabs.Root>
-			</section>
-
-			<section class="space-y-4 rounded-lg border bg-card p-6">
-				<h2 class="text-base font-semibold tracking-tight">{t('create.details.title')}</h2>
-
-				<div class="grid gap-4 sm:grid-cols-2">
-					<Field.Field data-invalid={!!fieldErrors.name}>
-						<Field.Label for="name">{t('create.details.name')}</Field.Label>
-						<Input
-							id="name"
-							bind:value={name}
-							placeholder={t('create.details.namePlaceholder')}
-							required
-						/>
-						{#if fieldErrors.name}<Field.Error>{fieldErrors.name}</Field.Error>{/if}
-					</Field.Field>
-
-					<Field.Field data-invalid={!!fieldErrors.port}>
-						<Field.Label for="port">{t('create.details.port')}</Field.Label>
-						<Input
-							id="port"
-							type="number"
-							min="1"
-							max="65535"
-							placeholder={String(defaultPort)}
-							value={port ?? ''}
-							oninput={(event) => {
-								const raw = event.currentTarget.value;
-								port = raw === '' ? null : Number(raw);
-							}}
-							class="tabular-nums"
-						/>
-						{#if fieldErrors.port}<Field.Error>{fieldErrors.port}</Field.Error>{/if}
-					</Field.Field>
-				</div>
-
-				{#if needsJava}
-					<div class="grid gap-4 sm:grid-cols-2">
-						<Field.Field data-invalid={!!fieldErrors.min_memory_mb}>
-							<Field.Label for="min-memory">{t('create.details.minMemory')}</Field.Label>
-							<Input
-								id="min-memory"
-								type="number"
-								min="128"
-								step="128"
-								bind:value={minMemory}
-								class="tabular-nums"
-							/>
-							{#if fieldErrors.min_memory_mb}
-								<Field.Error>{fieldErrors.min_memory_mb}</Field.Error>
-							{/if}
-						</Field.Field>
-
-						<Field.Field>
-							<Field.Label for="max-memory">{t('create.details.maxMemory')}</Field.Label>
-							<Input
-								id="max-memory"
-								type="number"
-								min="128"
-								step="128"
-								bind:value={maxMemory}
-								class="tabular-nums"
-							/>
-						</Field.Field>
-					</div>
-
-					<Field.Field>
-						<Field.Label for="java">{t('create.details.java')}</Field.Label>
-						<Select.Root type="single" bind:value={javaBinary}>
-							<Select.Trigger id="java" class="w-full">{javaLabel}</Select.Trigger>
-							<Select.Content>
-								<Select.Item value="" label={t('create.details.javaAuto')} />
-								{#each data.java as runtime (runtime.path)}
-									<Select.Item value={runtime.path} label={runtime.version} />
-								{/each}
-							</Select.Content>
-						</Select.Root>
-						{#if data.java.length === 0}
-							<Field.Description class="text-warning">
-								{t('create.details.javaNone')}
-							</Field.Description>
-						{/if}
-					</Field.Field>
-				{/if}
-
-				<Label class="font-normal text-muted-foreground">
-					<Checkbox bind:checked={advanced} />
-					{t('create.details.advanced')}
-				</Label>
-
-				{#if advanced}
-					<div class="space-y-4 border-t pt-4">
-						<Field.Field>
-							<Field.Label for="host">{t('create.details.host')}</Field.Label>
-							<Input id="host" bind:value={host} class="font-mono" />
-							<Field.Description>{t('create.details.hostHint')}</Field.Description>
-						</Field.Field>
-
-						{#if needsJava}
 							<Field.Field>
-								<Field.Label for="flags">{t('create.details.flags')}</Field.Label>
+								<Field.Label for="executable">{t('create.import.executable')}</Field.Label>
 								<Input
-									id="flags"
-									bind:value={javaFlags}
-									placeholder="-XX:+UseG1GC"
+									id="executable"
+									bind:value={executable}
+									placeholder="server.jar"
 									class="font-mono"
 								/>
-								<Field.Description>{t('create.details.flagsHint')}</Field.Description>
+								<Field.Description>{t('create.import.executableHint')}</Field.Description>
 							</Field.Field>
-						{/if}
-
-						<Field.Field orientation="horizontal">
-							<Field.Label for="autostart">{t('create.details.autostart')}</Field.Label>
-							<Switch id="autostart" bind:checked={autostart} />
-						</Field.Field>
-					</div>
-				{/if}
-			</section>
-
-			{#if catalogue.length || catalogueFailed}
-				<section class="space-y-4 rounded-lg border bg-card p-6">
-					<div class="space-y-1.5">
-						<h2 class="text-base font-semibold tracking-tight">{t('create.properties.title')}</h2>
-						<p class="text-sm text-muted-foreground">{t('create.properties.description')}</p>
-					</div>
-
-					{#if catalogueFailed}
-						<p class="text-sm text-destructive">{t('create.properties.failed')}</p>
-					{:else}
-						<Label class="font-normal text-muted-foreground">
-							<Checkbox bind:checked={showSettings} />
-							{t('create.properties.show')}
-						</Label>
-
-						{#if showSettings}
-							<div class="space-y-6 border-t pt-4">
-								{#each groups as group (group.name)}
-									<fieldset class="space-y-4">
-										<legend class="mb-3 text-sm font-medium">{group.name}</legend>
-										<div class="grid gap-4 sm:grid-cols-2">
-											{#each group.items as entry (entry.key)}
-												{@const invalid = !!fieldErrors[`properties.${entry.key}`]}
-												<Field.Field data-invalid={invalid}>
-													{#if entry.type === 'flag'}
-														<Label class="font-normal">
-															<Checkbox
-																checked={valueOf(entry) === 'true'}
-																onCheckedChange={(on) =>
-																	(settings[entry.key] = on ? 'true' : 'false')}
-															/>
-															{entry.label}
-														</Label>
-													{:else}
-														<Field.Label for={entry.key}>{entry.label}</Field.Label>
-													{/if}
-
-													{#if entry.type === 'choice'}
-														<Select.Root
-															type="single"
-															value={valueOf(entry)}
-															onValueChange={(picked) => (settings[entry.key] = picked)}
-														>
-															<Select.Trigger id={entry.key} class="w-full">
-																{optionLabel(valueOf(entry))}
-															</Select.Trigger>
-															<Select.Content>
-																{#each entry.options as option (option)}
-																	<Select.Item value={option} label={optionLabel(option)} />
-																{/each}
-															</Select.Content>
-														</Select.Root>
-													{:else if entry.type === 'number'}
-														<Input
-															id={entry.key}
-															type="number"
-															min={entry.min}
-															max={entry.max}
-															value={valueOf(entry)}
-															oninput={(event) => (settings[entry.key] = event.currentTarget.value)}
-															class="tabular-nums"
-														/>
-													{:else if entry.type === 'text'}
-														<Input
-															id={entry.key}
-															value={valueOf(entry)}
-															placeholder={entry.key === 'level-seed'
-																? t('create.properties.random')
-																: entry.default}
-															oninput={(event) => (settings[entry.key] = event.currentTarget.value)}
-														/>
-													{/if}
-
-													{#if invalid}
-														<Field.Error>{fieldErrors[`properties.${entry.key}`]}</Field.Error>
-													{:else if entry.help}
-														<Field.Description>{entry.help}</Field.Description>
-													{/if}
-												</Field.Field>
-											{/each}
-										</div>
-									</fieldset>
-								{/each}
-							</div>
-						{/if}
+						</div>
 					{/if}
 				</section>
-			{/if}
 
-			<section class="rounded-lg border bg-card p-6">
-				<Field.Field data-invalid={!!fieldErrors.agree_to_eula}>
-					<Label class="font-normal">
-						<Checkbox bind:checked={eula} required />
-						{t('create.eula.label')}
-					</Label>
-					<Field.Description>
-						<a
-							href="https://www.minecraft.net/eula"
-							target="_blank"
-							rel="noreferrer"
-							class="underline underline-offset-4"
-						>
-							{t('create.eula.link')}
-						</a>
-					</Field.Description>
-					{#if fieldErrors.agree_to_eula}
-						<Field.Error>{fieldErrors.agree_to_eula}</Field.Error>
+				<section class="space-y-4 rounded-lg border bg-card p-6">
+					<h2 class="text-base font-semibold tracking-tight">{t('create.details.title')}</h2>
+
+					<div class="grid gap-4 sm:grid-cols-2">
+						<Field.Field data-invalid={!!fieldErrors.name}>
+							<Field.Label for="name">{t('create.details.name')}</Field.Label>
+							<Input
+								id="name"
+								bind:value={name}
+								placeholder={t('create.details.namePlaceholder')}
+								required
+							/>
+							{#if fieldErrors.name}<Field.Error>{fieldErrors.name}</Field.Error>{/if}
+						</Field.Field>
+
+						<Field.Field data-invalid={!!fieldErrors.port}>
+							<Field.Label for="port">{t('create.details.port')}</Field.Label>
+							<Input
+								id="port"
+								type="number"
+								min="1"
+								max="65535"
+								placeholder={String(defaultPort)}
+								value={port ?? ''}
+								oninput={(event) => {
+									const raw = event.currentTarget.value;
+									port = raw === '' ? null : Number(raw);
+								}}
+								class="tabular-nums"
+							/>
+							{#if fieldErrors.port}<Field.Error>{fieldErrors.port}</Field.Error>{/if}
+						</Field.Field>
+					</div>
+
+					{#if needsJava}
+						<div class="grid gap-4 sm:grid-cols-2">
+							<Field.Field data-invalid={!!fieldErrors.min_memory_mb}>
+								<Field.Label for="min-memory">{t('create.details.minMemory')}</Field.Label>
+								<Input
+									id="min-memory"
+									type="number"
+									min="128"
+									step="128"
+									bind:value={minMemory}
+									class="tabular-nums"
+								/>
+								{#if fieldErrors.min_memory_mb}
+									<Field.Error>{fieldErrors.min_memory_mb}</Field.Error>
+								{/if}
+							</Field.Field>
+
+							<Field.Field>
+								<Field.Label for="max-memory">{t('create.details.maxMemory')}</Field.Label>
+								<Input
+									id="max-memory"
+									type="number"
+									min="128"
+									step="128"
+									bind:value={maxMemory}
+									class="tabular-nums"
+								/>
+							</Field.Field>
+						</div>
+
+						<Field.Field>
+							<Field.Label for="java">{t('create.details.java')}</Field.Label>
+							<Select.Root type="single" bind:value={javaBinary}>
+								<Select.Trigger id="java" class="w-full">{javaLabel}</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="" label={t('create.details.javaAuto')} />
+									{#each data.java as runtime (runtime.path)}
+										<Select.Item value={runtime.path} label={runtime.version} />
+									{/each}
+								</Select.Content>
+							</Select.Root>
+							{#if data.java.length === 0}
+								<Field.Description class="text-warning">
+									{t('create.details.javaNone')}
+								</Field.Description>
+							{/if}
+						</Field.Field>
 					{/if}
-				</Field.Field>
-			</section>
 
-			<div class="flex items-center justify-end gap-2">
-				<Button variant="outline" href={resolve('/')}>{t('common.actions.cancel')}</Button>
-				<Button type="submit" disabled={!ready || submitting || uploading}>
-					{#if submitting}<Spinner class="size-4" />{/if}
-					{submitting ? t('create.submitting') : t('create.submit')}
-				</Button>
-			</div>
+					<Label class="font-normal text-muted-foreground">
+						<Checkbox bind:checked={advanced} />
+						{t('create.details.advanced')}
+					</Label>
+
+					{#if advanced}
+						<div class="space-y-4 border-t pt-4">
+							<Field.Field>
+								<Field.Label for="host">{t('create.details.host')}</Field.Label>
+								<Input id="host" bind:value={host} class="font-mono" />
+								<Field.Description>{t('create.details.hostHint')}</Field.Description>
+							</Field.Field>
+
+							{#if needsJava}
+								<Field.Field>
+									<Field.Label for="flags">{t('create.details.flags')}</Field.Label>
+									<Input
+										id="flags"
+										bind:value={javaFlags}
+										placeholder="-XX:+UseG1GC"
+										class="font-mono"
+									/>
+									<Field.Description>{t('create.details.flagsHint')}</Field.Description>
+								</Field.Field>
+							{/if}
+
+							<Field.Field orientation="horizontal">
+								<Field.Label for="autostart">{t('create.details.autostart')}</Field.Label>
+								<Switch id="autostart" bind:checked={autostart} />
+							</Field.Field>
+						</div>
+					{/if}
+				</section>
+
+				{#if catalogue.length || catalogueFailed}
+					<section class="space-y-4 rounded-lg border bg-card p-6 xl:col-span-2">
+						<h2 class="text-base font-semibold tracking-tight">{t('create.properties.title')}</h2>
+
+						{#if catalogueFailed}
+							<p class="text-sm text-destructive">{t('create.properties.failed')}</p>
+						{:else}
+							<Label class="font-normal text-muted-foreground">
+								<Checkbox bind:checked={showSettings} />
+								{t('create.properties.show')}
+							</Label>
+
+							{#if showSettings}
+								<div class="space-y-6 border-t pt-4">
+									{#each groups as group (group.name)}
+										<fieldset class="space-y-4">
+											<legend class="mb-3 text-sm font-medium">{group.name}</legend>
+											<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+												{#each group.items as entry (entry.key)}
+													{@const invalid = !!fieldErrors[`properties.${entry.key}`]}
+													<Field.Field data-invalid={invalid}>
+														{#if entry.type === 'flag'}
+															<Label class="font-normal">
+																<Checkbox
+																	checked={valueOf(entry) === 'true'}
+																	onCheckedChange={(on) =>
+																		(settings[entry.key] = on ? 'true' : 'false')}
+																/>
+																{entry.label}
+															</Label>
+														{:else}
+															<Field.Label for={entry.key}>{entry.label}</Field.Label>
+														{/if}
+
+														{#if entry.type === 'choice'}
+															<Select.Root
+																type="single"
+																value={valueOf(entry)}
+																onValueChange={(picked) => (settings[entry.key] = picked)}
+															>
+																<Select.Trigger id={entry.key} class="w-full">
+																	{optionLabel(valueOf(entry))}
+																</Select.Trigger>
+																<Select.Content>
+																	{#each entry.options as option (option)}
+																		<Select.Item value={option} label={optionLabel(option)} />
+																	{/each}
+																</Select.Content>
+															</Select.Root>
+														{:else if entry.type === 'number' || entry.type === 'decimal'}
+															<Input
+																id={entry.key}
+																type="number"
+																min={entry.min}
+																max={entry.max}
+																step={entry.type === 'decimal' ? 'any' : undefined}
+																value={valueOf(entry)}
+																oninput={(event) =>
+																	(settings[entry.key] = event.currentTarget.value)}
+																class="tabular-nums"
+															/>
+														{:else if entry.key === 'server.tags'}
+															<RustTags
+																id={entry.key}
+																value={String(valueOf(entry) ?? '')}
+																onchange={(next) => (settings[entry.key] = next)}
+															/>
+														{:else if entry.type === 'text'}
+															<Input
+																id={entry.key}
+																value={valueOf(entry)}
+																placeholder={entry.key === 'level-seed' ||
+																entry.key === 'server.seed'
+																	? t('create.properties.random')
+																	: entry.default}
+																oninput={(event) =>
+																	(settings[entry.key] = event.currentTarget.value)}
+															/>
+														{/if}
+
+														{#if invalid}
+															<Field.Error>{fieldErrors[`properties.${entry.key}`]}</Field.Error>
+														{:else if entry.help}
+															<Field.Description>{entry.help}</Field.Description>
+														{/if}
+													</Field.Field>
+												{/each}
+											</div>
+										</fieldset>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					</section>
+				{/if}
+
+				{#if needsEula}
+					<section class="rounded-lg border bg-card p-6 xl:col-span-2">
+						<Field.Field data-invalid={!!fieldErrors.agree_to_eula}>
+							<Label class="font-normal">
+								<Checkbox bind:checked={eula} required />
+								{t('create.eula.label')}
+							</Label>
+							<Field.Description>
+								<a
+									href="https://www.minecraft.net/eula"
+									target="_blank"
+									rel="noreferrer"
+									class="underline underline-offset-4"
+								>
+									{t('create.eula.link')}
+								</a>
+							</Field.Description>
+							{#if fieldErrors.agree_to_eula}
+								<Field.Error>{fieldErrors.agree_to_eula}</Field.Error>
+							{/if}
+						</Field.Field>
+					</section>
+				{/if}
+
+				<div class="flex items-center justify-end gap-2 xl:col-span-2">
+					<Button variant="outline" href={resolve('/')}>{t('common.actions.cancel')}</Button>
+					<Button type="submit" disabled={!ready || submitting || uploading}>
+						{#if submitting}<Spinner class="size-4" />{/if}
+						{submitting ? t('create.submitting') : t('create.submit')}
+					</Button>
+				</div>
+			{/if}
 		</form>
 	{/if}
 </div>
+
+{#snippet option(value: string, title: string, summary?: string)}
+	<Label
+		class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-data-checked:border-primary"
+	>
+		<RadioGroup.Item {value} class="mt-0.5" />
+		<span class="min-w-0 space-y-0.5">
+			<span class="block font-medium">{title}</span>
+			{#if summary}
+				<span class="block text-xs font-normal text-muted-foreground">{summary}</span>
+			{/if}
+		</span>
+	</Label>
+{/snippet}

@@ -48,7 +48,7 @@ pub(crate) async fn located(
     identity
         .require_server(&state.db, id, ServerPerm::Files)
         .await?;
-    let row = super::servers::load(state, id).await?;
+    let row = super::servers::load_minecraft(state, id).await?;
     let bedrock = row.kind == "minecraft_bedrock";
     let directory = PathBuf::from(&row.directory);
     Ok((directory, level_name(&row, bedrock).await, bedrock))

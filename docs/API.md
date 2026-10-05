@@ -58,7 +58,7 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | PATCH  | `/servers/{id}`         | Change settings. Only fields the caller may change are accepted.                                                                                                                                                                                                                                |
 | DELETE | `/servers/{id}`         | `?delete_files=true` also removes the folder. The server has to be stopped first, or the answer is `409 CONFLICT`. Requires `CONFIG`; the interface offers it as a danger zone on the server's settings tab.                                                                                 |
 | POST   | `/servers/{id}/action`  | `{action: "start"\|"stop"\|"restart"\|"kill"\|"clone"}`. Returns immediately; watch the events.                                                                                                                                                                                                 |
-| POST   | `/servers/{id}/command` | `{command}` → `{via: "rcon"\|"stdin", output}`. Goes over RCON when the server has it set up, and over stdin otherwise; only RCON returns `output`. Requires `COMMANDS`.                                                                                                                        |
+| POST   | `/servers/{id}/command` | `{command}` → `{via: "rcon"\|"stdin", output}`. Goes over RCON when the server has it set up, and over stdin otherwise; only RCON returns `output`. Rust ignores stdin, so there a command RCON cannot deliver is an error. Requires `COMMANDS`.                                                                    |
 | GET    | `/servers/{id}/console` | Recent console lines: `{lines: [{seq, at, stream, text}]}`, `?after=<seq>` for the tail. `stream` is `stdout`, `stderr`, `install` for what the installer did, and `command` and `rcon` for the panel's echo of an RCON exchange.                                                              |
 | DELETE | `/servers/{id}/console` | Drops the backlog the panel holds for this server, for everybody watching, and publishes `cleared` on the console topic. Sequence numbers carry on, so a client polling with `after` is unaffected. The game's own log files are untouched. Requires `CONSOLE`.                             |
 | GET    | `/servers/{id}/rcon`    | `{supported, enabled, port, reachable}`. `supported` is false for Bedrock, which has no RCON. `reachable` is proven by connecting, so it is only ever true while the server is up. Requires `COMMANDS`.                                                                                         |
@@ -215,14 +215,85 @@ files are Java or Bedrock:
 - A `.zip` at a `url` is unpacked; anything else is kept as the server jar.
 - `folder` copies rather than moves, and is **administrator only**: `CREATE_SERVER` alone does not
   grant reading arbitrary paths on the host.
-- `agree_to_eula` must be true. It writes `eula.txt` for Java servers.
+- `agree_to_eula` must be true for Minecraft servers. It writes `eula.txt` for Java servers.
+  Other games ignore it.
 - Validation answers `422` with `fields` keyed as `name`, `port`, `min_memory_mb`, `agree_to_eula`,
   `source.provider`, `source.version`, `source.kind`, `source.url`, `source.path`,
   `source.upload_id`.
 
+### Rust
+
+The provider `rust` has kind `rust` and a `version` that names a Steam branch: `release`,
+`staging` or `aux02`. The panel fetches SteamCMD into `/config/steamcmd` on first use and runs
+`app_update 258550` into the server folder, reported as `downloading` progress. Rust has no
+settings file, so `properties` takes the console variables from its catalogue (`server.level`,
+`server.seed`, `server.worldsize`, `server.maxplayers`, `server.pve`, `server.description`) and
+they go on the command line as `+name value`.
+
+`port` is the game port, and the two above it are taken as well: websocket RCON (`+rcon.web 1`) on
+`port + 1` (bound to the loopback, and read back out of the start command) and the Steam query on
+`port + 2`. Websocket RCON keeps the panel's commands out of the console, so the panel can ask
+quietly; a server still on `+rcon.web 0` is spoken to over the legacy protocol. The query
+answers the same status fields as the Minecraft ping. `stop_command` is `quit`. The start
+command holds the RCON password, so everybody but an administrator sees it as `********`.
+
+The `/servers/{id}/properties` routes serve Rust too, reading and rewriting the `+name value`
+pairs on the start command instead of a file. The catalogue has 30 or so settings (map, seed,
+size, slots, game mode, listing text and images, tags, tick rate, upkeep and decay, events, wipe
+timer). `server.tags` is lower-cased and refused when it holds two tags from one exclusive group
+(wipe schedule, difficulty, region). An empty value takes a setting off so the game's own default applies, and the ports,
+`server.identity` and the RCON settings are listed as managed and refuse writes. The password is
+never returned. `settings.convars` on the server object carries the same pairs for the overview,
+and changing `port` with `PATCH` moves the query and RCON ports with it. A change needs a restart.
+The Minecraft players, add-on and bridge routes answer `422` for a Rust server, which has its own:
+
+| Method | Path                                | Purpose |
+| ------ | ----------------------------------- | ------- |
+| GET    | `/servers/{id}/rust/players`        | `{running, online, known, staff, bans}`. `online` is `playerlist` (`steam_id, name, ping, address, connected_seconds, health`), asked fresh and remembered into `known`. `staff` (`steam_id, name, role: owner|moderator`) and `bans` (`steam_id, name, reason, expires`, Unix seconds or `null` for good) are read from `users.cfg` and `bans.cfg`. Requires `PLAYERS`. |
+| POST   | `/servers/{id}/rust/player-actions` | One of `{action: "kick", steam_id, reason}`, `{action: "ban", steam_id, name, reason, duration}` (`12h`, `7d`; none for good), `{action: "unban", steam_id}`, `{action: "staff", steam_id, name, role}` (`null` takes both roles away), `{action: "mute", steam_id, duration}`, `{action: "unmute", steam_id}`, `{action: "say", message}`, `{action: "teleport", steam_id, to}`, `{action: "give", steam_id, item, amount}`. A running server gets the command over RCON; a stopped one has bans and staff written to the cfg files, and refuses the rest with `409`. Names and reasons refuse double quotes and line breaks. Requires `PLAYERS`, or `COMMANDS` for `say`, `teleport` and `give`. |
+| GET    | `/servers/{id}/rust/chat`           | `{running, lines: [{channel, message, user_id, username, time}]}` from `chat.tail 200`. Rust keeps it in memory, so a restart empties it. Channel 1 is team chat and 2 the server. New lines also arrive as they are said, as `chat` events on `server:<id>:console`. Requires `CONSOLE`. |
+| GET    | `/servers/{id}/rust/health`         | `{health: {framerate, entities, queued, joining, network_in, network_out, game_time} | null, rust_plus: {state, detail, listening, connects_to}}` from `serverinfo` and `app.info`, while the server runs. Network figures are bytes a second. `rust_plus.state` is `off` (`app.port -1`), `failed` (Rust printed that its connectivity test failed since it started, with what it said in `detail`), `listening`, or `unknown`. Requires `CONSOLE`. |
+| POST   | `/servers/{id}/rust/wipe`           | `{kind: "map"|"blueprints"|"full", new_seed}` → `{deleted, seed}`. Deletes save files from `server/<identity>/`: a map wipe the `.map`, `.sav` and its backups, the map caches, `sv.files` and `player.states`; a blueprint wipe `player.blueprints`; a full wipe both plus deaths, identities, teams and clans. `companion.id`, `player.tokens` and `cfg/` are never touched. `new_seed` writes a random `server.seed` unless the map comes from `server.levelurl`. The server has to be stopped (`409` otherwise). Requires `CONFIG`. |
+| GET    | `/servers/{id}/rust/build`          | `{branch, installed, latest, update_available}`. `installed` is the `buildid` in `steamapps/appmanifest_258550.acf`; `latest` is what SteamCMD's `app_info_print` says for the branch (`release` is Steam's `public`), asked at most every half hour and also in the background, which is what sets `flags.update_available` on the server. Requires `CONFIG`. |
+| POST   | `/servers/{id}/rust/build`          | `{warn}` → `{started, warn}`. Updates from Steam in the background: a running server first counts `warn` seconds down in chat (at most 1800), then stops, runs `app_update` with `install` events while `flags.updating` is set, and starts again. `409` while it is already installing or updating. Requires `CONFIG`. |
+| GET    | `/servers/{id}/rust/mods`           | `{framework: "oxide"|"carbon"|null, version, running, plugins}`. Oxide counts when `RustDedicated_Data/Managed/Oxide.Rust.dll` is there; Carbon when `carbon/managed/Carbon.Preloader.dll` is there and the start command loads it through Unity Doorstop. `version` is `oxide.version` or `c.version`, asked while the server runs. `plugins` are `{file, name, title, author, version, enabled}`, read from each file's `[Info(...)]`. Requires `FILES`. |
+| PUT    | `/servers/{id}/rust/mods`           | `{framework}` → `{started}`. In the background, on a stopped server: taking Oxide off runs SteamCMD's check to restore the game files it replaced; Oxide is unpacked from its latest Linux release; Carbon from the build for the server's branch, with `TERM`, `DOORSTOP_ENABLED`, `DOORSTOP_TARGET_ASSEMBLY` and `LD_PRELOAD` added to the `env` on the start command (and taken off again for anything else). Steam updates put Oxide back afterwards on their own. `409` while running, installing or updating. Requires `CONFIG`. |
+| POST   | `/servers/{id}/rust/plugins`        | `?name=Plugin.cs` with the source as the body. Lands in `oxide/plugins` or `carbon/plugins`, which the framework compiles as it changes. Requires `FILES`. |
+| PATCH  | `/servers/{id}/rust/plugins/{file}` | `{enabled}` moves the file between `plugins` and `plugins-disabled`, which loads or unloads it. Requires `FILES`. |
+| DELETE | `/servers/{id}/rust/plugins/{file}` | Deletes the plugin from either folder. Its config and data stay. Requires `FILES`. |
+| GET    | `/servers/{id}/rust/plugins/search` | `?q=&page=` → `{plugins: [{name, title, description, author, version, downloads, url}], page, last_page, total}` from uMod, most downloaded first. Requires `FILES`. |
+| POST   | `/servers/{id}/rust/plugins/install`| `{name}` fetches `https://umod.org/plugins/<name>.cs`, refusing anything without an `[Info]` attribute, into wherever that plugin already sits (so an update keeps a switched-off one off). Requires `FILES`. |
+| GET    | `/servers/{id}/rust/plugins/updates`| `{latest: {name: version}}` for each installed plugin uMod has under that exact name. Requires `FILES`. |
+| GET    | `/servers/{id}/rust/reports`        | `{enabled, reports: [{id, received_at, reporter_id, reporter_name, kind, subject, message, target_id, target_name, has_image}]}`, newest 200 first. `kind` is 0 general, 1 bug, 2 cheat, 3 abuse, 4 idea; Rust only posts general, bug and idea reports. A new one is announced as `report` on `server:<id>`. Requires `PLAYERS`. |
+| PUT    | `/servers/{id}/rust/reports`        | `{enabled}` sets `server.reportsserverendpoint` to the panel's hook and `server.reportsserverendpointkey` to a fresh key, on the start command and on a running server, or takes both off. The key is never shown. Requires `CONFIG`. |
+| GET    | `/servers/{id}/rust/reports/{report_id}/image` | The screenshot that came with a report, as `image/jpeg`. Requires `PLAYERS`. |
+| DELETE | `/servers/{id}/rust/reports/{report_id}` | Forgets a report. Requires `PLAYERS`. |
+| GET    | `/servers/{id}/rust/shared-bans`    | `{enabled, can_edit, bans: [{steam_id, name, reason, expires_at, mute, created_at, created_by}]}`: the panel-wide list, and whether this server asks it about joining players. Requires `PLAYERS`. |
+| PUT    | `/servers/{id}/rust/shared-bans`    | `{enabled}` points `server.bansserverendpoint` at the panel's hook with `server.bansserverfailuremode 0`, so joining stays open if the panel cannot answer, or takes both off. Requires `CONFIG`. |
+
+The shared list itself is edited by an administrator only, since a ban there reaches every Rust
+server that uses it:
+
+| Method | Path                     | Purpose |
+| ------ | ------------------------ | ------- |
+| POST   | `/rust-bans`             | `{steam_id, name, reason, duration, mute}` adds or replaces a ban (`duration` as `12h` or `7d`, none for good) and kicks, or mutes, the player on every running server that uses the list, since Rust only asks at join. |
+| DELETE | `/rust-bans/{steam_id}`  | Lifts it. |
+
+Rust servers call two hooks of their own, with no session. They are answered only on the
+loopback, which is where a game server in the same container comes from, and `404` otherwise:
+
+| Method | Path                               | Purpose |
+| ------ | ---------------------------------- | ------- |
+| POST   | `/rust-hooks/reports/{server_id}`  | The form Rust posts an F7 report as: `data` (its JSON), `userid` and `key`, which has to match the server's report key. |
+| GET    | `/rust-hooks/bans/{steam_id}`      | `404` for nobody on the shared list, or `{steamId, reason, expiryDate, isMute}` with `expiryDate` 0 for a ban that never ends. |
+
 The reply is `201 {"id": "…"}` as soon as the row exists. Downloading, unpacking and configuring
 happen after that, reported as `install` events on `server:<id>` and as `install` console lines. A
 failed install leaves the server in place with an empty start command so the console can be read.
+An event's `phase` is one of `resolving`, `downloading`, `extracting`, `copying`, `installing`,
+`configuring`, `done` and `failed`; a SteamCMD install adds `steamcmd`, `signing_in`,
+`preallocating`, `verifying` and `committing`. `percent` covers the whole install, not the step,
+and `message` adds what the step alone does not say, such as how much of the download is done.
 
 | Method | Path                                    | Purpose                                                                                                                                                 |
 | ------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -338,8 +409,8 @@ preview; anything older has to arrive as a `url` or a `zip`.
 | GET              | `/servers/{id}/backups/{backup_id}/archives`             | `[{name, size, created_at}]`.                                                                                                                                                                                                                            |
 | POST             | `/servers/{id}/backups/{backup_id}/restore`              | `{archive, wipe_first}`.                                                                                                                                                                                                                                 |
 | GET              | `…/archives/{name}/download`, DELETE `…/archives/{name}` | Fetch or remove an archive.                                                                                                                                                                                                                              |
-| GET/POST         | `/servers/{id}/schedules`                                | `{name, enabled, trigger, action}` where `trigger` is `{type:"interval", every_seconds, at?}`, `{type:"cron", expression}` or `{type:"after", schedule_id, delay_seconds}`, and `action` is `{type:"start"\|"stop"\|"restart"\|"backup"\|"command", …}`. |
-| GET/PATCH/DELETE | `/servers/{id}/schedules/{schedule_id}`                  | One schedule. `POST …/run` runs it now.                                                                                                                                                                                                                  |
+| GET/POST         | `/servers/{id}/schedules`                                | `{name, enabled, trigger, action, one_time}`. `trigger` is `{type:"interval", every_seconds}` (60 at the least), `{type:"cron", expression}` (five fields in the panel's local time, both day fields having to match) or `{type:"after", schedule_id, delay_seconds}`, which starts its clock when that schedule runs. `action` is `{type:"start"}`, `{type:"stop"|"restart", warn_seconds}` (counted down in chat with `say`), `{type:"command", command}` (skipped while stopped), and on Rust `{type:"wipe", kind, new_seed, warn_seconds}` (stops, wipes and starts again if it was running) or `{type:"update", warn_seconds, only_if_newer}`. A schedule comes back with `next_run_at`, `last_run_at` and `last_result`, which says what the last run did or starts `Failed:`. Requires `SCHEDULES`. |
+| GET/PATCH/DELETE | `/servers/{id}/schedules/{schedule_id}`                  | One schedule; `PATCH` takes any of the fields above. `POST …/run` runs it now, in the background, and wakes anything chained to it. Requires `SCHEDULES`. |
 | GET/POST         | `/servers/{id}/webhooks`                                 | `{name, provider, url, events, template, enabled}`. `POST …/{webhook_id}/test` sends a test.                                                                                                                                                             |
 
 `POST /servers/{id}/packs` reads a `.mcaddon`, `.mcpack` or plain `.zip` and puts what is inside
@@ -584,7 +655,7 @@ Server frames are `{"type":"event","topic":…,"event":…,"data":…}`, plus `{
 | Topic                 | Events                                                                                                                              |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `servers`             | `state` (`{server_id, state, flags}`), `stats` (`{server_id, …}`), `created`, `deleted`                                             |
-| `server:<id>:console` | `line` (`{seq, at, stream, text}`), `cleared` (`{}`) — requires `CONSOLE`                                                           |
+| `server:<id>:console` | `line` (`{seq, at, stream, text}`), `cleared` (`{}`), and on Rust `chat` (as in `/rust/chat`) — requires `CONSOLE`                  |
 | `server:<id>`         | `state`, `stats`, `players`, `install` (`{phase, percent, message}`), `backup` (`{backup_id, phase, percent}`), `upload`, `extract` |
 | `panel`               | `host_stats`, `notification` (`{level, message}`), `audit`                                                                          |
 

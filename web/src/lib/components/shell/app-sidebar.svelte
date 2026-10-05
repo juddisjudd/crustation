@@ -11,7 +11,7 @@
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { Kbd } from '$lib/components/ui/kbd/index.js';
 	import NavUser from './nav-user.svelte';
-	import StatusDot from './status-dot.svelte';
+	import ServerMark from '$lib/components/servers/server-mark.svelte';
 	import { servers } from '$lib/servers.svelte';
 	import { session } from '$lib/session.svelte';
 	import { commandMenu } from './command-menu.svelte';
@@ -23,9 +23,10 @@
 </script>
 
 <Sidebar.Root variant="inset" collapsible="icon">
-	<Sidebar.Header>
-		<Sidebar.Menu>
-			<Sidebar.MenuItem>
+	<Sidebar.Header class="pt-0">
+		<Sidebar.Menu class="gap-2">
+			<!-- Same height as the page's top bar, so the logo lines up with it. -->
+			<Sidebar.MenuItem class="flex h-12 items-center">
 				<Sidebar.MenuButton size="lg" class="hover:bg-transparent">
 					{#snippet child({ props })}
 						<a href={resolve('/')} {...props}>
@@ -90,18 +91,18 @@
 						<Sidebar.MenuButton isActive={isActive(href)} tooltipContent={server.name}>
 							{#snippet child({ props })}
 								<a {href} {...props}>
-									<StatusDot status={servers.statusOf(server.id)} class="mx-1" />
+									<ServerMark
+										kind={server.kind}
+										status={servers.statusOf(server.id)}
+										ring="ring-sidebar"
+									/>
 									<span>{server.name}</span>
 								</a>
 							{/snippet}
 						</Sidebar.MenuButton>
 					</Sidebar.MenuItem>
 				{:else}
-					{#if servers.loaded}
-						<p class="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-							{t('nav.noServers')}
-						</p>
-					{:else}
+					{#if !servers.loaded}
 						{#each [0, 1, 2] as i (i)}
 							<Sidebar.MenuSkeleton showIcon />
 						{/each}

@@ -1,6 +1,48 @@
 export const server = {
 	copyAddress: 'Copy address',
 	installing: 'Installing',
+	updating: 'Updating',
+	health: {
+		title: 'Server health',
+		framerate: 'Frame rate',
+		fps: '{fps} fps',
+		entities: 'Entities',
+		queue: 'Queue',
+		queueValue: '{queued} waiting, {joining} joining',
+		network: 'Network',
+		networkValue: '{in}/s in, {out}/s out',
+		rustPlus: 'Rust+',
+		rustPlusStates: {
+			off: 'Switched off',
+			failed: 'Not reachable',
+			listening: 'Listening',
+			unknown: 'Starting up'
+		},
+		rustPlusWhere: 'The app connects to {address}.',
+		rustPlusFix:
+			'Publish TCP {port} and forward it on your router, or set the Rust+ public address in Settings.'
+	},
+	updates: {
+		title: 'Updates',
+		installed: 'Installed build',
+		latest: 'Newest on {branch}',
+		upToDate: 'Up to date',
+		available: 'Update available',
+		unknown: 'Steam did not answer',
+		checking: 'Asking Steam…',
+		button: 'Update now',
+		warn: 'Warn players',
+		warnings: {
+			none: 'No warning',
+			m1: '1 minute',
+			m5: '5 minutes',
+			m15: '15 minutes'
+		},
+		started: 'Updating {name}',
+		startedRunning:
+			'Players get a countdown in chat, then the server stops, updates and starts again.',
+		failed: 'Could not start the update'
+	},
 	actions: 'Server actions',
 	openConsole: 'Open console',
 	noActions: 'No actions available',
@@ -25,11 +67,32 @@ export const server = {
 		memoryLimit: 'Memory',
 		folder: 'Folder',
 		latency: 'Ping',
-		command: 'Start command'
+		command: 'Start command',
+		activity: {
+			title: 'Last hour',
+			label: '{name} over the last hour',
+			noData: 'Nothing recorded yet.'
+		},
+		rust: {
+			queryPort: 'Query port',
+			name: 'Server name',
+			branch: 'Branch',
+			map: 'Map',
+			seed: 'Seed',
+			seedRandom: 'Random',
+			mapSize: 'Map size',
+			gameMode: 'Game mode',
+			standard: 'standard',
+			rules: 'Rules',
+			pve: 'PvE',
+			pvp: 'PvP',
+			tags: 'Tags',
+			connectTitle: 'Connect',
+			connectHint: 'In Rust, press F1 and enter this. The server has to be running.'
+		}
 	},
 	motd: {
 		title: 'Message of the day',
-		hint: 'What people see beside your server in their list.',
 		preview: 'How it will look',
 		empty: 'Nothing set yet.',
 		saved: 'Message of the day saved',
@@ -69,7 +132,7 @@ export const server = {
 		},
 		output: 'Server console output',
 		waiting: 'Waiting for output…',
-		stopped: 'The server is not running. Start it to see live output.',
+		stopped: 'The server is not running.',
 		latest: 'Latest',
 		command: 'Console command',
 		placeholder: 'Type a command, for example: say Hello',

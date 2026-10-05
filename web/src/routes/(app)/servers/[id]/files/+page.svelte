@@ -39,7 +39,7 @@
 		type Listing
 	} from '$lib/api/files';
 	import { installPack, looksInstallable } from '$lib/api/packs';
-	import { bytes, dateTime } from '$lib/format';
+	import { bytes, dateTime, isMinecraft } from '$lib/format';
 	import { t } from '$lib/i18n/index.svelte';
 
 	let { data } = $props();
@@ -222,7 +222,7 @@
 	<title>{open ? openName : t('nav.tabs.files')} · {server.name} · Crustation</title>
 </svelte:head>
 
-<div class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 md:px-8">
+<div class="page flex flex-1 flex-col py-4">
 	{#if open}
 		{@const file = open}
 		<div class="flex flex-wrap items-center justify-between gap-3">
@@ -340,7 +340,8 @@
 					</Table.Header>
 					<Table.Body>
 						{#each listing.entries as entry (entry.name)}
-							{@const pack = entry.kind === 'file' && looksInstallable(entry.name)}
+							{@const pack =
+								isMinecraft(server.kind) && entry.kind === 'file' && looksInstallable(entry.name)}
 							<Table.Row>
 								<Table.Cell>
 									<button

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -76,6 +77,8 @@ struct Instance {
     installing: bool,
     backing_up: bool,
     updating: bool,
+    /// Why Rust+ failed its connectivity test since the last start, if it did.
+    rust_plus_failure: Option<String>,
 }
 
 impl Instance {
@@ -92,6 +95,7 @@ impl Instance {
             installing: false,
             backing_up: false,
             updating: false,
+            rust_plus_failure: None,
         }
     }
 
@@ -181,6 +185,16 @@ impl Supervisor {
         }
     }
 
+    /// Why Rust+ failed its connectivity test since the last start; empty when Rust said nothing more.
+    pub async fn rust_plus_failure(&self, id: Uuid) -> Option<String> {
+        self.instance(id)
+            .await
+            .lock()
+            .await
+            .rust_plus_failure
+            .clone()
+    }
+
     pub async fn console(&self, id: Uuid, after: Option<u64>) -> Vec<ConsoleLine> {
         let instance = self.instance(id).await;
         let guard = instance.lock().await;
@@ -257,6 +271,7 @@ impl Supervisor {
         guard.pid = child.id();
         guard.started_at = Some(Utc::now());
         guard.state = State::Starting;
+        guard.rust_plus_failure = None;
         guard.stopping = false;
         guard.child = Some(child);
         let flags = guard.flags();
@@ -298,6 +313,7 @@ impl Supervisor {
         tokio::spawn(async move {
             let mut lines = BufReader::new(reader).lines();
             while let Ok(Some(text)) = lines.next_line().await {
+                let text = strip_escapes(&text).into_owned();
                 // The only place a Bedrock server ever says an Xbox id out loud.
                 if let Some((name, xuid)) = xuid_in(&text) {
                     remember_xuid(&db, id, &name, &xuid).await;
@@ -305,6 +321,7 @@ impl Supervisor {
                     mark_left(&db, id, &name).await;
                 }
                 let mut guard = instance.lock().await;
+                guard.rust_plus_failure = rust_plus_after(guard.rust_plus_failure.take(), &text);
                 let line = guard.push(stream, text, backlog);
                 // A server that prints "Done" is up; good enough across the games we run.
                 if guard.state == State::Starting && looks_ready(&line.text) {
@@ -440,13 +457,17 @@ impl Supervisor {
             bail!("the server is not running");
         }
 
-        if let Some(endpoint) = self.rcon_endpoint(id).await {
-            match crate::rcon::run(&endpoint, command).await {
+        if let Some((endpoint, listener)) = self.rcon_endpoint(id).await {
+            let rust = listener != Listener::Minecraft;
+            let answer = match listener {
+                Listener::RustWeb => crate::webrcon::run(&endpoint, command).await,
+                _ => crate::rcon::run(&endpoint, command).await,
+            };
+            match answer {
                 Ok(output) => {
                     let output = output.trim_end().to_string();
-                    if echo {
-                        // The server logs commands typed on stdin but not these,
-                        // so echo both sides into the console everyone watches.
+                    // Minecraft does not log RCON commands, so echo both sides; Rust logs them itself.
+                    if echo && !rust {
                         self.push_console(id, "command", format!("> {command}"))
                             .await;
                         for text in output.lines() {
@@ -457,6 +478,10 @@ impl Supervisor {
                         via: "rcon",
                         output: Some(output),
                     });
+                }
+                // Rust ignores stdin, so a typed command RCON could not deliver has to say so.
+                Err(error) if echo && rust => {
+                    return Err(error.context("RCON did not take the command"));
                 }
                 Err(error) => {
                     tracing::warn!(%error, server = %id, "RCON failed, falling back to stdin");
@@ -471,13 +496,46 @@ impl Supervisor {
         })
     }
 
-    async fn rcon_endpoint(&self, id: Uuid) -> Option<crate::rcon::Endpoint> {
-        let row: (String, String) =
-            sqlx::query_as("SELECT directory, kind FROM servers WHERE id = ?")
+    /// Asks a Rust server something over websocket RCON, which leaves its console alone.
+    pub async fn ask(&self, id: Uuid, command: &str) -> Result<String> {
+        if !self.state(id).await.is_live() {
+            bail!("the server is not running");
+        }
+        match self.rcon_endpoint(id).await {
+            Some((endpoint, Listener::RustWeb)) => crate::webrcon::run(&endpoint, command).await,
+            _ => bail!("only a Rust server on websocket RCON can be asked quietly"),
+        }
+    }
+
+    /// Chat from a Rust server on websocket RCON as it is said.
+    pub async fn chat_feed(
+        &self,
+        id: Uuid,
+    ) -> Result<(
+        tokio::sync::broadcast::Receiver<String>,
+        Arc<std::sync::atomic::AtomicBool>,
+    )> {
+        match self.rcon_endpoint(id).await {
+            Some((endpoint, Listener::RustWeb)) => crate::webrcon::listen(&endpoint).await,
+            _ => bail!("only a Rust server on websocket RCON pushes its chat"),
+        }
+    }
+
+    async fn rcon_endpoint(&self, id: Uuid) -> Option<(crate::rcon::Endpoint, Listener)> {
+        let row: (String, String, String) =
+            sqlx::query_as("SELECT directory, kind, command FROM servers WHERE id = ?")
                 .bind(id.to_string())
                 .fetch_one(&self.db)
                 .await
                 .ok()?;
+        // Rust's listener is named in its start command.
+        if row.1 == crate::rust_game::KIND {
+            let listener = match crate::rust_game::rcon_web(&row.2) {
+                true => Listener::RustWeb,
+                false => Listener::RustLegacy,
+            };
+            return crate::rust_game::rcon_endpoint(&row.2).map(|endpoint| (endpoint, listener));
+        }
         // Bedrock has no RCON, so stdin stays its only command path.
         if row.1 != "minecraft_java" {
             return None;
@@ -486,6 +544,7 @@ impl Supervisor {
             .await
             .ok()
             .flatten()
+            .map(|endpoint| (endpoint, Listener::Minecraft))
     }
 
     /// Asks politely, waits, then kills.
@@ -506,7 +565,8 @@ impl Supervisor {
         }
 
         if !launch.stop_command.trim().is_empty() {
-            let _ = self.send(id, &launch.stop_command).await;
+            // Over RCON where there is one, since Rust does not reliably read its stdin.
+            let _ = self.run(id, &launch.stop_command, false).await;
         }
 
         let deadline =
@@ -657,9 +717,68 @@ async fn forget_who_was_on(db: &crate::db::Db, id: Uuid) {
     }
 }
 
+/// Which RCON a server speaks.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Listener {
+    Minecraft,
+    RustLegacy,
+    RustWeb,
+}
+
+/// Terminal colour and cursor codes, which a browser would print as junk.
+pub fn strip_escapes(text: &str) -> Cow<'_, str> {
+    if !text.contains('\u{1b}') {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\u{7}' {
+                        break;
+                    }
+                    if c == '\u{1b}' {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Cow::Owned(out)
+}
+
+/// What Rust+'s connectivity test has said so far, after one more console line.
+fn rust_plus_after(known: Option<String>, line: &str) -> Option<String> {
+    if line.contains("companion server connectivity test failed") {
+        Some(String::new())
+    } else if known.is_some() && line.starts_with("Could not establish a TCP connection to") {
+        Some(line.to_string())
+    } else {
+        known
+    }
+}
+
 fn looks_ready(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
-    lower.contains("done (") || lower.contains("server started") || lower.contains("for help, type")
+    lower.contains("done (")
+        || lower.contains("server started")
+        || lower.contains("for help, type")
+        || lower.contains("server startup complete")
 }
 
 #[cfg(unix)]
@@ -679,6 +798,44 @@ fn kill_pid(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notices_rust_plus_failing_its_connectivity_test() {
+        let lines = [
+            "Checking for new Steam Item Definitions..",
+            "Rust+ companion server connectivity test failed! Disabling Rust+ features.",
+            "",
+            "Could not establish a TCP connection to 203.0.113.7:28083",
+            "Curl error 7: Failed to connect",
+        ];
+        let known = lines
+            .iter()
+            .fold(None, |known, line| rust_plus_after(known, line));
+        assert_eq!(
+            known.as_deref(),
+            Some("Could not establish a TCP connection to 203.0.113.7:28083")
+        );
+        let quiet = [
+            "Server startup complete",
+            "Could not establish a TCP connection to x",
+        ];
+        assert_eq!(
+            quiet
+                .iter()
+                .fold(None, |known, line| rust_plus_after(known, line)),
+            None
+        );
+    }
+
+    #[test]
+    fn terminal_codes_are_taken_out_of_a_line() {
+        assert_eq!(
+            strip_escapes("\x1b[0mOK \x1b[1;32mgreen\x1b[0m"),
+            "OK green"
+        );
+        assert_eq!(strip_escapes("\x1b]0;title\x07after"), "after");
+        assert!(matches!(strip_escapes("plain"), Cow::Borrowed("plain")));
+    }
 
     #[test]
     fn clearing_the_backlog_does_not_rewind_the_sequence() {

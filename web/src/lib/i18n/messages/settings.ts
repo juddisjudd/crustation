@@ -16,17 +16,74 @@ export const settings = {
 	loadFailed: 'Could not read server.properties.',
 	other: {
 		title: 'Everything else in the file',
-		description: 'Keys the panel has no form for. Edit them as text.',
 		managed: 'The panel writes this one.',
 		empty: 'Nothing else is in the file.'
+	},
+	rust: {
+		title: 'Server settings',
+		description:
+			"Rust reads these when it starts, so changes wait for the next start. Clear a field to go back to the game's own default.",
+		otherTitle: 'Other start-up settings',
+		otherDescription: "Port settings follow the server's port.",
+		otherEmpty: 'Nothing else is set.'
+	},
+	tags: {
+		groups: {
+			wipe: 'Wipe',
+			difficulty: 'Difficulty',
+			gameplay: 'Gameplay',
+			modding: 'Mods',
+			region: 'Region'
+		},
+		names: {
+			monthly: 'Monthly',
+			biweekly: 'Every two weeks',
+			weekly: 'Weekly',
+			vanilla: 'Vanilla',
+			hardcore: 'Hardcore',
+			softcore: 'Softcore',
+			pve: 'PvE',
+			roleplay: 'Roleplay',
+			creative: 'Creative',
+			minigame: 'Minigames',
+			training: 'Training',
+			battlefield: 'Battlefield',
+			broyale: 'Battle royale',
+			builds: 'Builds',
+			tut: 'Tutorial',
+			premium: 'Premium',
+			modded: 'Modded',
+			oxide: 'Oxide',
+			carbon: 'Carbon'
+		},
+		other: 'Other',
+		tooMany: 'The browser shows only four of these {count}.'
+	},
+	wipe: {
+		title: 'Wipe',
+		description:
+			'Deletes save files so the next start begins fresh. Settings, bans and staff stay.',
+		map: 'Map',
+		mapHint: 'The world and everything built in it.',
+		blueprints: 'Blueprints',
+		blueprintsHint: 'What players have learned.',
+		full: 'Everything',
+		fullHint: 'Map and blueprints, plus deaths, teams and clans.',
+		newSeed: 'Roll a new seed',
+		button: 'Wipe',
+		confirmTitle: 'Wipe {name}?',
+		confirmBody: 'This cannot be undone.',
+		running: 'Stop the server before wiping it.',
+		done_one: 'Deleted 1 file',
+		done_other: 'Deleted {count} files',
+		seed: 'The next map uses seed {seed}.',
+		failed: 'Could not wipe the server'
 	},
 	danger: {
 		title: 'Delete this server',
 		description:
 			'The server is removed from the panel. Its stats, schedules and saved commands go with it. This cannot be undone.',
 		files: 'Delete the files as well, including every world',
-		filesHint:
-			'Leave this off to keep the folder on disk and only remove the server from the panel.',
 		button: 'Delete server',
 		confirmTitle: 'Delete {name}?',
 		confirmBody: 'This cannot be undone.',

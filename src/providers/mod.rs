@@ -3,6 +3,7 @@ mod fabric;
 mod neoforge;
 mod paper;
 mod purpur;
+mod rust;
 mod vanilla;
 
 use std::collections::HashMap;
@@ -24,7 +25,7 @@ pub struct Info {
     pub needs_java: bool,
 }
 
-pub const ALL: [Info; 6] = [
+pub const ALL: [Info; 7] = [
     Info {
         id: "vanilla",
         name: "Vanilla",
@@ -71,6 +72,14 @@ pub const ALL: [Info; 6] = [
         kind: "minecraft_bedrock",
         summary: "Mojang's dedicated server for phones, consoles and Windows.",
         default_port: 19132,
+        needs_java: false,
+    },
+    Info {
+        id: "rust",
+        name: "Rust",
+        kind: crate::rust_game::KIND,
+        summary: "Facepunch's survival game. Installed through SteamCMD, around 10 GB.",
+        default_port: 28015,
         needs_java: false,
     },
 ];
@@ -123,6 +132,12 @@ pub enum Layout {
     Jar,
     /// A zip holding the whole server folder.
     Zip { executable: String },
+    /// An app Steam hosts, installed by running SteamCMD rather than downloading a file.
+    SteamCmd {
+        app_id: u32,
+        branch: Option<String>,
+        executable: String,
+    },
     /// An installer that has to be run once before the server exists.
     Installer { neoforge_version: String },
 }
@@ -155,6 +170,8 @@ impl Catalogue {
             "fabric" => fabric::versions(http).await?,
             "neoforge" => neoforge::versions(http).await?,
             "bedrock" => bedrock::versions(http).await?,
+            // Branches, not numbers, so there is nothing to sort.
+            "rust" => return Ok(rust::versions()),
             other => bail!("no provider called '{other}'"),
         };
         sort_newest_first(&mut versions);
@@ -178,6 +195,7 @@ pub async fn resolve(http: &reqwest::Client, provider: &str, version: &str) -> R
         "fabric" => fabric::resolve(http, version).await,
         "neoforge" => neoforge::resolve(http, version).await,
         "bedrock" => bedrock::resolve(http, version).await,
+        "rust" => rust::resolve(version),
         other => bail!("no provider called '{other}'"),
     }
 }

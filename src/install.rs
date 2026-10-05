@@ -14,6 +14,7 @@ use crate::properties::{self, Properties};
 use crate::providers::{self, Artifact, JavaHint, Layout};
 use crate::state::AppState;
 use crate::supervisor::Flag;
+use crate::{rust_game, steam};
 
 /// Where the files for a new server come from.
 pub enum Source {
@@ -233,7 +234,10 @@ async fn run(state: &AppState, job: &Job) -> Result<Installed> {
     configure(state, job).await?;
 
     Ok(Installed {
-        command: start_command(job, &runtime, &placed.executable, &placed.layout),
+        command: match job.kind.as_str() {
+            rust_game::KIND => rust_command(state, job),
+            _ => start_command(job, &runtime, &placed.executable, &placed.layout),
+        },
         executable: placed.executable,
         provider: placed.provider,
         provider_version: placed.provider_version,
@@ -409,6 +413,20 @@ async fn place(state: &AppState, job: &Job, artifact: &Artifact) -> Result<Strin
             make_executable(&job.directory.join(executable)).await;
             Ok(executable.clone())
         }
+        Layout::SteamCmd {
+            app_id,
+            branch,
+            executable,
+        } => {
+            let target = SteamTarget {
+                id: job.id,
+                kind: &job.kind,
+                directory: &job.directory,
+            };
+            steam_install(state, target, *app_id, branch.as_deref(), executable).await?;
+            make_executable(&job.directory.join(executable)).await;
+            Ok(executable.clone())
+        }
         Layout::Installer { neoforge_version } => {
             let installer = job.directory.join(&artifact.file_name);
             download(state, job.id, artifact, &installer).await?;
@@ -523,6 +541,178 @@ fn transferred(done: u64, total: Option<u64>) -> String {
     }
 }
 
+/// Gets the dedicated server from Steam. SteamCMD is known to fall over on a first
+/// run while it updates itself, and a repeat resumes where it stopped.
+/// Which server a SteamCMD run is for, whether installing it or bringing it up to date.
+#[derive(Clone, Copy)]
+struct SteamTarget<'a> {
+    id: Uuid,
+    kind: &'a str,
+    directory: &'a Path,
+}
+
+async fn steam_install(
+    state: &AppState,
+    job: SteamTarget<'_>,
+    app_id: u32,
+    branch: Option<&str>,
+    executable: &str,
+) -> Result<()> {
+    const ATTEMPTS: u32 = 3;
+
+    let config = absolute(&state.config.paths.config);
+    let directory = steam::directory(&config);
+    let home = steam::home(&config);
+    let target = absolute(job.directory);
+
+    progress(state, job.id, "steamcmd", Some(0.0), "");
+    log(state, job.id, "Getting SteamCMD ready.".into()).await;
+    let program = steam::ensure(&state.http, &directory)
+        .await
+        .context("setting up SteamCMD")?;
+    tokio::fs::create_dir_all(&home)
+        .await
+        .with_context(|| format!("creating {}", home.display()))?;
+
+    for attempt in 1..=ATTEMPTS {
+        match run_steamcmd(state, job, &program, &home, &target, app_id, branch).await {
+            Ok(()) => break,
+            Err(error) if attempt < ATTEMPTS => {
+                log(
+                    state,
+                    job.id,
+                    format!("SteamCMD stopped: {error:#}. Trying again."),
+                )
+                .await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    steam::link_client_library(&directory, &home).await;
+    if !tokio::fs::try_exists(job.directory.join(executable))
+        .await
+        .unwrap_or(false)
+    {
+        bail!("SteamCMD finished but left no {executable} behind");
+    }
+    Ok(())
+}
+
+async fn run_steamcmd(
+    state: &AppState,
+    job: SteamTarget<'_>,
+    program: &Path,
+    home: &Path,
+    target: &Path,
+    app_id: u32,
+    branch: Option<&str>,
+) -> Result<()> {
+    let what = match job.kind {
+        rust_game::KIND => "Rust server",
+        _ => "Server",
+    };
+    let mut running = steam::app_update(program, home, target, app_id, branch).await?;
+    let mut shown = "";
+    let mut last = Instant::now();
+    while let Some(line) = running.lines.recv().await {
+        let step = steam::step_in(&line);
+        if !line.starts_with("Update state") {
+            log(state, job.id, line).await;
+        }
+        let Some(step) = step else { continue };
+        if step.phase != shown || last.elapsed() >= Duration::from_millis(400) {
+            shown = step.phase;
+            last = Instant::now();
+            progress(
+                state,
+                job.id,
+                step.phase,
+                Some(steam_bar(&step)),
+                &steam_detail(&step, what),
+            );
+        }
+    }
+    let status = running.finish().await?;
+    if !status.success() {
+        bail!("SteamCMD exited with {status}");
+    }
+    Ok(())
+}
+
+/// Where a SteamCMD step sits on the bar, which stops at 95 for writing settings.
+fn steam_bar(step: &steam::Step) -> f64 {
+    let (start, width) = match step.phase {
+        "steamcmd" => (0.0, 5.0),
+        "signing_in" | "resolving" => (5.0, 0.0),
+        "preallocating" => (5.0, 5.0),
+        "downloading" => (10.0, 75.0),
+        "verifying" => (85.0, 7.0),
+        _ => (92.0, 3.0),
+    };
+    start + width * step.percent.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0
+}
+
+fn steam_detail(step: &steam::Step, what: &str) -> String {
+    if let Some(detail) = &step.detail {
+        return detail.clone();
+    }
+    let percent = step
+        .percent
+        .filter(|percent| *percent > 0.0)
+        .map(|percent| format!("{percent:.0}%"))
+        .unwrap_or_default();
+    match (step.phase, step.bytes) {
+        ("downloading", Some((done, total))) => {
+            format!("{what}, {} of {}", size(done), size(total))
+        }
+        ("downloading", None) => format!("{what}, {percent}"),
+        _ => percent,
+    }
+}
+
+/// Brings an installed Rust server up to the newest build on its branch.
+pub async fn update_from_steam(
+    state: &AppState,
+    id: Uuid,
+    directory: &Path,
+    branch: Option<&str>,
+) -> Result<()> {
+    let target = SteamTarget {
+        id,
+        kind: rust_game::KIND,
+        directory,
+    };
+    let executable = rust_game::executable();
+    steam_install(state, target, rust_game::APP_ID, branch, executable).await?;
+    make_executable(&directory.join(executable)).await;
+    progress(state, id, "done", Some(100.0), "");
+    Ok(())
+}
+
+/// SteamCMD's launcher and the Steam home it keeps, fetching SteamCMD first if need be.
+pub async fn steamcmd(state: &AppState) -> Result<(PathBuf, PathBuf)> {
+    let config = absolute(&state.config.paths.config);
+    let program = steam::ensure(&state.http, &steam::directory(&config)).await?;
+    Ok((program, steam::home(&config)))
+}
+
+fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn rust_command(state: &AppState, job: &Job) -> String {
+    let home = steam::home(&absolute(&state.config.paths.config));
+    rust_game::start_command(
+        &job.directory,
+        &home,
+        &job.name,
+        job.port,
+        &job.properties,
+        &crate::rcon::generate_password(),
+    )
+}
+
 /// NeoForge ships an installer rather than a server, so it has to be run once.
 async fn run_installer(state: &AppState, job: &Job, installer: &str) -> Result<()> {
     let java = job.java_binary.clone().unwrap_or_else(|| "java".into());
@@ -586,6 +776,11 @@ fn start_command(job: &Job, runtime: &Runtime, executable: &str, layout: &Layout
 /// Accepts the EULA, applies the settings that were asked for, and points the
 /// server at the port it was created with.
 async fn configure(state: &AppState, job: &Job) -> Result<()> {
+    // Rust has no settings file; what was asked for is already in the start command.
+    if job.kind == rust_game::KIND {
+        return Ok(());
+    }
+
     if job.kind == "minecraft_java" && job.agree_to_eula {
         let eula = job.directory.join("eula.txt");
         tokio::fs::write(&eula, "# Accepted through Crustation.\neula=true\n")

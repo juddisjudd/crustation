@@ -302,12 +302,11 @@
 
 <svelte:head><title>{t('nav.tabs.console')} · {server.name} · Crustation</title></svelte:head>
 
-<div class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 md:px-8">
+<div class="page flex flex-1 flex-col py-4">
 	<div
-		class="terminal relative flex h-[calc(100svh-16rem)] min-h-90 flex-col overflow-hidden rounded-lg border bg-[#0a0a0a] text-[#ededed] shadow-xs"
+		class="terminal relative flex h-[calc(100svh-13.5rem)] min-h-90 flex-col overflow-hidden rounded-lg border bg-[#0a0a0a] text-[#ededed] shadow-xs"
 	>
 		<div class="flex h-10 items-center gap-2 border-b border-white/10 px-3 text-xs text-white/60">
-			<span class="font-mono">{server.name}</span>
 			<span class="ml-auto inline-flex items-center gap-1.5">
 				<span class={['size-1.5 rounded-full', running ? 'bg-success' : 'bg-white/30']}></span>
 				{running ? t('server.console.live') : t('server.console.offline')}

@@ -21,7 +21,6 @@ export const nav = {
 	reconnecting: 'Reconnecting…',
 	administrator: 'Administrator',
 	member: 'Member',
-	noServers: 'No servers yet.',
 	tabs: {
 		overview: 'Overview',
 		console: 'Console',
@@ -29,6 +28,8 @@ export const nav = {
 		files: 'Files',
 		chat: 'Chat',
 		players: 'Players',
-		content: 'Add-ons'
+		content: 'Add-ons',
+		plugins: 'Plugins',
+		schedules: 'Schedules'
 	}
 } as const;

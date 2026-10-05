@@ -1,7 +1,6 @@
 export const admin = {
 	users: {
 		title: 'Users',
-		description: 'Who can sign in, and what each of them may do.',
 		empty: 'Only you so far.',
 		loadFailed: 'Could not read the users.',
 		new: 'New user',
@@ -24,14 +23,13 @@ export const admin = {
 			passwordHint: 'At least 10 characters.',
 			email: 'Email',
 			admin: 'Administrator',
-			adminHint: 'Every permission, on every server, always.',
 			enabled: 'Can sign in',
 			roles: 'Roles',
 			rolesEmpty: 'No roles yet. Make one first, or grant administrator.'
 		},
 		keys: {
 			title: 'API keys for {name}',
-			description: 'For scripts and automation. A key can do whatever its owner can.',
+			description: 'A key can do whatever its owner can.',
 			empty: 'No keys.',
 			name: 'What is it for',
 			create: 'Create key',
@@ -51,7 +49,6 @@ export const admin = {
 	},
 	roles: {
 		title: 'Roles',
-		description: 'A named set of permissions you can hand to somebody.',
 		empty: 'No roles yet.',
 		loadFailed: 'Could not read the roles.',
 		new: 'New role',
@@ -65,11 +62,8 @@ export const admin = {
 		field: {
 			name: 'Name',
 			global: 'Panel permissions',
-			globalHint: 'What holders may do outside any one server.',
 			servers: 'Per-server permissions',
-			serversHint:
-				'Tick what holders may do on each server. Untouched servers stay invisible to them.',
-			noServers: 'No servers to grant yet.'
+			serversHint: 'Servers with nothing ticked stay hidden from holders.'
 		},
 		counts: {
 			none: 'None',

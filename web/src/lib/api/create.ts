@@ -33,6 +33,7 @@ export type PropertyKind =
 	| { type: 'text' }
 	| { type: 'flag' }
 	| { type: 'number'; min: number; max: number }
+	| { type: 'decimal'; min: number; max: number }
 	| { type: 'choice'; options: string[] };
 
 export type KnownProperty = {
@@ -70,8 +71,13 @@ export interface NewServer {
 }
 
 export type InstallPhase =
+	| 'steamcmd'
+	| 'signing_in'
 	| 'resolving'
+	| 'preallocating'
 	| 'downloading'
+	| 'verifying'
+	| 'committing'
 	| 'extracting'
 	| 'copying'
 	| 'installing'

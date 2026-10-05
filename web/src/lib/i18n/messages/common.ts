@@ -35,7 +35,8 @@ export const common = {
 		},
 		kind: {
 			minecraft_java: 'Minecraft Java',
-			minecraft_bedrock: 'Minecraft Bedrock'
+			minecraft_bedrock: 'Minecraft Bedrock',
+			rust: 'Rust'
 		},
 		action: {
 			start: 'Start',

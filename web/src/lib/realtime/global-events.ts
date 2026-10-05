@@ -8,6 +8,7 @@ export function registerGlobalEvents() {
 			if (!event?.message) return;
 			if (event.level === 'error') toast.error(event.message);
 			else if (event.level === 'warning') toast.warning(event.message);
+			else if (event.level === 'success') toast.success(event.message);
 			else toast(event.message);
 		})
 	];

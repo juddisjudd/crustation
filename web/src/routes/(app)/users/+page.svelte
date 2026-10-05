@@ -197,8 +197,8 @@
 
 <svelte:head><title>{t('admin.users.title')} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-6xl px-4 py-8 md:px-8">
-	<PageHeader title={t('admin.users.title')} description={t('admin.users.description')}>
+<div class="page py-6">
+	<PageHeader title={t('admin.users.title')}>
 		{#snippet actions()}
 			<Button onclick={startAdd}>
 				<PlusIcon />
@@ -337,7 +337,6 @@
 				<Field.Field orientation="horizontal">
 					<Field.Content>
 						<Field.Label for="is-admin">{t('admin.users.field.admin')}</Field.Label>
-						<Field.Description>{t('admin.users.field.adminHint')}</Field.Description>
 					</Field.Content>
 					<Switch id="is-admin" bind:checked={isAdmin} />
 				</Field.Field>

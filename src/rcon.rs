@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout, timeout_at};
 
 use crate::properties::{self, Properties};
 
@@ -138,20 +138,29 @@ impl Session {
 
     async fn exec(&mut self, command: &str) -> Result<String> {
         let id = self.send(EXEC, command).await?;
-        let first = timeout(COMMAND_TIMEOUT, self.read())
-            .await
-            .context("the server did not answer the command")??;
-        if first.id != id {
-            bail!("RCON answered a different request");
-        }
+        // Rust streams its own log down the socket under the id 0, around the answer.
+        let deadline = Instant::now() + COMMAND_TIMEOUT;
+        let first = loop {
+            let packet = timeout_at(deadline, self.read())
+                .await
+                .context("the server did not answer the command")??;
+            if packet.id == id {
+                break packet;
+            }
+            // Rust ends every exchange with this, and sends nothing else for a silent command.
+            if packet.id == -1 && packet.kind == RESPONSE && packet.body.is_empty() {
+                return Ok(String::new());
+            }
+        };
 
         let mut out = first.body;
         // Long output arrives as several packets carrying the same id.
-        while let Ok(Ok(packet)) = timeout(CONTINUATION_TIMEOUT, self.read()).await {
-            if packet.id != id {
-                break;
+        let mut quiet = Instant::now() + CONTINUATION_TIMEOUT;
+        while let Ok(Ok(packet)) = timeout_at(quiet, self.read()).await {
+            if packet.id == id {
+                out.push_str(&packet.body);
+                quiet = Instant::now() + CONTINUATION_TIMEOUT;
             }
-            out.push_str(&packet.body);
         }
         Ok(out)
     }
@@ -251,6 +260,7 @@ mod tests {
         password: &'static str,
         reply: &'static [&'static str],
         empty_packet_first: bool,
+        log_lines: bool,
     ) -> SocketAddr {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -267,7 +277,13 @@ mod tests {
                     }
                     EXEC => {
                         for chunk in reply {
+                            if log_lines {
+                                write_packet(&mut stream, 0, 4, "[RCON] a log line").await;
+                            }
                             write_packet(&mut stream, id, RESPONSE, chunk).await;
+                        }
+                        if log_lines {
+                            write_packet(&mut stream, -1, RESPONSE, "").await;
                         }
                     }
                     _ => {}
@@ -283,6 +299,7 @@ mod tests {
             "secret",
             &["There are 0 of a max of ", "20 players online:"],
             false,
+            false,
         )
         .await;
         let endpoint = Endpoint {
@@ -296,8 +313,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skips_the_log_lines_rust_sends_around_an_answer() {
+        let address = fake_server("secret", &["hostname: ", "Rust test"], false, true).await;
+        let endpoint = Endpoint {
+            address,
+            password: "secret".into(),
+        };
+        assert_eq!(
+            run(&endpoint, "status").await.unwrap(),
+            "hostname: Rust test"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_silent_rust_command_answers_with_nothing() {
+        let address = fake_server("secret", &[], false, true).await;
+        let endpoint = Endpoint {
+            address,
+            password: "secret".into(),
+        };
+        let started = std::time::Instant::now();
+        assert_eq!(run(&endpoint, "say hello").await.unwrap(), "");
+        assert!(started.elapsed() < COMMAND_TIMEOUT);
+    }
+
+    #[tokio::test]
     async fn tolerates_an_empty_packet_before_the_auth_result() {
-        let address = fake_server("secret", &["ok"], true).await;
+        let address = fake_server("secret", &["ok"], true, false).await;
         let endpoint = Endpoint {
             address,
             password: "secret".into(),
@@ -307,7 +349,7 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_a_bad_password() {
-        let address = fake_server("secret", &[], false).await;
+        let address = fake_server("secret", &[], false, false).await;
         let endpoint = Endpoint {
             address,
             password: "wrong".into(),

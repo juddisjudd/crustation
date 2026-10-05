@@ -44,6 +44,10 @@ pub fn routes() -> Router<AppState> {
         .merge(crate::api::packs::routes())
         .merge(crate::api::pack_notes::routes())
         .merge(crate::api::players::routes())
+        .merge(crate::api::rust_players::routes())
+        .merge(crate::api::rust_mods::routes())
+        .merge(crate::api::rust_moderation::routes())
+        .merge(crate::api::schedules::routes())
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -83,12 +87,30 @@ impl ServerRow {
 /// The shape docs/API.md promises for a server.
 pub async fn server_json(
     state: &AppState,
+    identity: &Identity,
     row: &ServerRow,
     permissions: Vec<&'static str>,
 ) -> Value {
     let id = row.uuid();
     let runtime = state.supervisor.runtime(id).await;
     let stats = latest_stats(state, &row.id).await;
+    let rust = row.kind == crate::rust_game::KIND;
+    let command = match rust && !identity.is_admin() {
+        true => crate::rust_game::masked(&row.command),
+        false => row.command.clone(),
+    };
+    let update_available = rust
+        && crate::rust_updates::known(
+            std::path::Path::new(&row.directory),
+            row.provider_version.as_deref().unwrap_or_default(),
+        )
+        .update_available;
+    // What the game was told, for the overview. Null for kinds with no such thing.
+    let convars = rust.then(|| {
+        crate::rust_game::visible_convars(&row.command)
+            .into_iter()
+            .collect::<BTreeMap<_, _>>()
+    });
 
     json!({
         "id": row.id,
@@ -108,7 +130,8 @@ pub async fn server_json(
             "log_path": row.log_path,
             "directory": row.directory,
             "executable": row.executable,
-            "command": row.command,
+            "command": command,
+            "convars": convars,
             "java": {
                 "binary": row.java_binary,
                 "min_memory_mb": row.min_memory_mb,
@@ -126,7 +149,7 @@ pub async fn server_json(
             "backing_up": runtime.backing_up,
             "crashed": runtime.state_str == "crashed",
             "last_backup_failed": false,
-            "update_available": false,
+            "update_available": update_available,
         },
         "permissions": permissions,
     })
@@ -211,7 +234,7 @@ async fn list(identity: Identity, State(state): State<AppState>) -> ApiResult<im
             .await
             .map_err(ApiError::Internal)?;
         let names = granted.iter().map(|p| p.as_str()).collect();
-        out.push(server_json(&state, &row, names).await);
+        out.push(server_json(&state, &identity, &row, names).await);
     }
     Ok(OkJson(out))
 }
@@ -370,6 +393,10 @@ fn checked_properties(
                 ));
             }
         };
+        // A Rust setting left empty is not set, which is what the form means by it.
+        if kind == crate::rust_game::KIND && raw.trim().is_empty() {
+            continue;
+        }
         let checked =
             properties::check(entry, &raw).map_err(|message| ApiError::field(field, message))?;
         out.push((key, checked));
@@ -499,7 +526,8 @@ async fn create(
         }
     };
 
-    if !body.agree_to_eula {
+    let is_minecraft = kind.starts_with("minecraft_");
+    if is_minecraft && !body.agree_to_eula {
         return Err(ApiError::field(
             "agree_to_eula",
             "Accept the Minecraft end user licence agreement to continue.",
@@ -511,6 +539,13 @@ async fn create(
     let port = body.port.unwrap_or_else(|| default_port(&kind));
     if !(1..=65535).contains(&port) {
         return Err(ApiError::field("port", "Pick a port between 1 and 65535."));
+    }
+    // The RCON and query ports sit just above it.
+    if kind == crate::rust_game::KIND && port > 65533 {
+        return Err(ApiError::field(
+            "port",
+            "Rust uses the two ports above this one as well, so pick one below 65534.",
+        ));
     }
 
     let min_memory_mb = body.min_memory_mb.unwrap_or(1024);
@@ -529,18 +564,23 @@ async fn create(
     }
 
     let host = body.host.unwrap_or_else(|| "0.0.0.0".to_string());
-    // Bedrock logs to its console only; Java keeps a log file worth reading.
+    // Bedrock and Rust log to their console only; Java keeps a log file worth reading.
     let log_path = match kind.as_str() {
         "minecraft_java" => "logs/latest.log",
         _ => "",
+    };
+    // Rust says goodbye to `quit`, which is also what saves the map.
+    let stop_command = match kind.as_str() {
+        crate::rust_game::KIND => "quit",
+        _ => "stop",
     };
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(
         "INSERT INTO servers (id, name, kind, directory, java_binary, min_memory_mb,
-             max_memory_mb, java_flags, host, port, autostart, log_path, created_by,
-             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             max_memory_mb, java_flags, host, port, autostart, log_path, stop_command,
+             created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id.to_string())
     .bind(&name)
@@ -554,6 +594,7 @@ async fn create(
     .bind(port)
     .bind(body.autostart)
     .bind(log_path)
+    .bind(stop_command)
     .bind(&identity.user.id)
     .bind(&now)
     .bind(&now)
@@ -605,6 +646,7 @@ fn checked_kind(kind: &str) -> Result<String, ApiError> {
 fn default_port(kind: &str) -> i64 {
     match kind {
         "minecraft_bedrock" => 19132,
+        crate::rust_game::KIND => crate::rust_game::DEFAULT_PORT,
         _ => 25565,
     }
 }
@@ -752,6 +794,17 @@ pub async fn load(state: &AppState, id: Uuid) -> Result<ServerRow, ApiError> {
         .ok_or_else(|| ApiError::not_found("Server"))
 }
 
+/// For the routes built on Minecraft's own files and commands: players, add-ons and the bridge.
+pub async fn load_minecraft(state: &AppState, id: Uuid) -> Result<ServerRow, ApiError> {
+    let row = load(state, id).await?;
+    if !row.kind.starts_with("minecraft_") {
+        return Err(ApiError::validation(
+            "Only Minecraft servers have players, add-ons and worlds here.",
+        ));
+    }
+    Ok(row)
+}
+
 async fn detail(
     identity: Identity,
     State(state): State<AppState>,
@@ -766,7 +819,7 @@ async fn detail(
     }
     let row = load(&state, id).await?;
     let names = granted.iter().map(|p| p.as_str()).collect();
-    Ok(OkJson(server_json(&state, &row, names).await))
+    Ok(OkJson(server_json(&state, &identity, &row, names).await))
 }
 
 #[derive(Deserialize)]
@@ -836,6 +889,11 @@ async fn update(
     let log_path = body.log_path.unwrap_or(row.log_path);
     let executable = body.executable.unwrap_or(row.executable);
     let command = body.command.unwrap_or(row.command);
+    // The command names the three ports, so they follow the one on the row.
+    let command = match row.kind == crate::rust_game::KIND && port != row.port {
+        true => crate::rust_game::with_port(&command, port).unwrap_or(command),
+        false => command,
+    };
     let java_binary = body.java_binary.or(row.java_binary);
     let min_memory_mb = body.min_memory_mb.unwrap_or(row.min_memory_mb);
     let max_memory_mb = body.max_memory_mb.unwrap_or(row.max_memory_mb);
@@ -886,7 +944,7 @@ async fn update(
         .await
         .map_err(ApiError::Internal)?;
     let names = granted.iter().map(|p| p.as_str()).collect();
-    Ok(OkJson(server_json(&state, &row, names).await))
+    Ok(OkJson(server_json(&state, &identity, &row, names).await))
 }
 
 #[derive(Deserialize)]

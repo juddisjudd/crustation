@@ -6,7 +6,7 @@ export type ServerPermission =
 export type ServerState =
 	'stopped' | 'starting' | 'running' | 'stopping' | 'crashed' | 'installing';
 
-export type ServerKind = 'minecraft_java' | 'minecraft_bedrock' | string;
+export type ServerKind = 'minecraft_java' | 'minecraft_bedrock' | 'rust' | string;
 
 export interface User {
 	id: string;
@@ -66,6 +66,8 @@ export interface ServerSettings {
 	directory: string;
 	executable: string;
 	command: string;
+	/** Rust only: the settings on its start command, without the RCON password. */
+	convars?: Record<string, string> | null;
 	java: {
 		binary: string | null;
 		min_memory_mb: number;

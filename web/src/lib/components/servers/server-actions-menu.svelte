@@ -16,7 +16,7 @@
 
 	let { server, align = 'end' }: { server: Server; align?: 'start' | 'end' } = $props();
 
-	const running = $derived(servers.isRunning(server.id));
+	const running = $derived(servers.isLive(server.id));
 	const canCommand = $derived(server.permissions.includes('COMMANDS'));
 	const canConsole = $derived(server.permissions.includes('CONSOLE'));
 

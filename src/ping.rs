@@ -71,6 +71,13 @@ pub async fn query(kind: &str, host: &str, port: u16) -> Result<Status> {
         "minecraft_bedrock" => tokio::time::timeout(TIMEOUT, bedrock(host, port))
             .await
             .context("the server did not answer in time")?,
+        crate::rust_game::KIND => {
+            let port = u16::try_from(crate::rust_game::query_port(i64::from(port)))
+                .context("the query port is out of range")?;
+            tokio::time::timeout(TIMEOUT, source(host, port))
+                .await
+                .context("the server did not answer in time")?
+        }
         _ => tokio::time::timeout(TIMEOUT, java(host, port))
             .await
             .context("the server did not answer in time")?,
@@ -237,6 +244,117 @@ fn parse_bedrock(line: &str, latency_ms: i64) -> Result<Status> {
     })
 }
 
+// Source: A2S_INFO, the query Valve's engine and Rust answer on their query port.
+// https://developer.valvesoftware.com/wiki/Server_queries
+
+const A2S_HEADER: [u8; 4] = [0xff; 4];
+
+fn a2s_info_request(challenge: Option<&[u8]>) -> Vec<u8> {
+    let mut request = A2S_HEADER.to_vec();
+    request.push(b'T');
+    request.extend_from_slice(b"Source Engine Query\0");
+    if let Some(challenge) = challenge {
+        request.extend_from_slice(challenge);
+    }
+    request
+}
+
+async fn source(host: &str, port: u16) -> Result<Status> {
+    let socket = UdpSocket::bind("0.0.0.0:0").await?;
+    socket
+        .connect((host, port))
+        .await
+        .with_context(|| format!("reaching {host}:{port}"))?;
+
+    let started = Instant::now();
+    socket.send(&a2s_info_request(None)).await?;
+    let mut buffer = [0u8; 1400];
+    let mut read = socket.recv(&mut buffer).await?;
+
+    // Newer servers answer with a challenge first, to be sent back with the question.
+    if read >= 9 && buffer[..4] == A2S_HEADER && buffer[4] == b'A' {
+        let challenge = buffer[5..9].to_vec();
+        socket.send(&a2s_info_request(Some(&challenge))).await?;
+        read = socket.recv(&mut buffer).await?;
+    }
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    parse_source(&buffer[..read], latency_ms)
+}
+
+/// `FF FF FF FF 49`, the protocol, then name, map, folder and game as C strings,
+/// an app id, the player counts, and a few flags before the version string.
+fn parse_source(reply: &[u8], latency_ms: i64) -> Result<Status> {
+    if reply.len() < 6 || reply[..4] != A2S_HEADER || reply[4] != b'I' {
+        bail!("the server did not answer with its info");
+    }
+    let mut cursor = &reply[6..];
+    let name = take_c_string(&mut cursor)?;
+    for _ in 0..3 {
+        take_c_string(&mut cursor)?;
+    }
+    // App id (2), players, max players, bots, type, environment, visibility, VAC.
+    if cursor.len() < 9 {
+        bail!("the reply was too short to read");
+    }
+    let mut players_online = i64::from(cursor[2]);
+    let mut players_max = i64::from(cursor[3]);
+    cursor = &cursor[9..];
+    let version = take_c_string(&mut cursor).unwrap_or_default();
+
+    // The counts above are single bytes; Rust repeats them in full as `cp` and `mp` tags.
+    for tag in keywords(cursor).split(',') {
+        if let Some(count) = tag.strip_prefix("cp").and_then(|n| n.parse().ok()) {
+            players_online = count;
+        } else if let Some(count) = tag.strip_prefix("mp").and_then(|n| n.parse().ok()) {
+            players_max = count;
+        }
+    }
+
+    Ok(Status {
+        motd: name,
+        version,
+        players_online,
+        players_max,
+        latency_ms,
+        // Names need a second query, and the panel only wants the counts.
+        sample: Vec::new(),
+    })
+}
+
+/// The keywords out of the optional fields after the version, behind a flags byte.
+fn keywords(mut cursor: &[u8]) -> String {
+    let Some((&flags, rest)) = cursor.split_first() else {
+        return String::new();
+    };
+    cursor = rest;
+    let skip = |cursor: &mut &[u8], count: usize| *cursor = cursor.get(count..).unwrap_or_default();
+    if flags & 0x80 != 0 {
+        skip(&mut cursor, 2);
+    }
+    if flags & 0x10 != 0 {
+        skip(&mut cursor, 8);
+    }
+    if flags & 0x40 != 0 {
+        skip(&mut cursor, 2);
+        take_c_string(&mut cursor).ok();
+    }
+    if flags & 0x20 == 0 {
+        return String::new();
+    }
+    take_c_string(&mut cursor).unwrap_or_default()
+}
+
+fn take_c_string(cursor: &mut &[u8]) -> Result<String> {
+    let end = cursor
+        .iter()
+        .position(|byte| *byte == 0)
+        .context("a string in the reply never ended")?;
+    let text = String::from_utf8_lossy(&cursor[..end]).into_owned();
+    *cursor = &cursor[end + 1..];
+    Ok(text)
+}
+
 // Varints and strings, the way the Java protocol writes them.
 
 fn write_varint(out: &mut Vec<u8>, mut value: i32) {
@@ -346,6 +464,43 @@ mod tests {
             "one two"
         );
         assert_eq!(chat_to_text(&Value::Null), "");
+    }
+
+    #[test]
+    fn reads_what_a_source_server_says_about_itself() {
+        let mut reply = vec![0xff, 0xff, 0xff, 0xff, b'I', 17];
+        reply.extend_from_slice(b"My Rust Server\0Procedural Map\0rust\0Rust\0");
+        // App id 252490, 12 of 50 players, no bots, dedicated, Linux, public, VAC on.
+        reply.extend_from_slice(&[0x4a, 0xd8, 12, 50, 0, b'd', b'l', 0, 1]);
+        reply.extend_from_slice(b"2584\0");
+
+        let status = parse_source(&reply, 4).expect("parses");
+        assert_eq!(status.motd, "My Rust Server");
+        assert_eq!(status.version, "2584");
+        assert_eq!((status.players_online, status.players_max), (12, 50));
+    }
+
+    #[test]
+    fn takes_rust_player_counts_from_its_tags() {
+        let mut reply = vec![0xff, 0xff, 0xff, 0xff, b'I', 17];
+        reply.extend_from_slice(b"Rust test\0Procedural Map\0rust\0Rust\0");
+        // 500 slots do not fit the byte, which says 244.
+        reply.extend_from_slice(&[0x4a, 0xd8, 0, 244, 0, b'd', b'l', 0, 1]);
+        reply.extend_from_slice(b"2634\0");
+        // Port and Steam id, then the keywords.
+        reply.push(0x80 | 0x10 | 0x20);
+        reply.extend_from_slice(&[0x6f, 0x6d]);
+        reply.extend_from_slice(&[0; 8]);
+        reply.extend_from_slice(b"mp500,cp3,ptrak,qp0,v2634\0");
+
+        let status = parse_source(&reply, 4).expect("parses");
+        assert_eq!((status.players_online, status.players_max), (3, 500));
+    }
+
+    #[test]
+    fn refuses_a_challenge_as_if_it_were_info() {
+        let reply = [0xff, 0xff, 0xff, 0xff, b'A', 1, 2, 3, 4];
+        assert!(parse_source(&reply, 0).is_err());
     }
 
     #[test]

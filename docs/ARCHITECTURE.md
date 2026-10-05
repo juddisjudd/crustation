@@ -15,7 +15,7 @@ crustation (single binary)
 ├── stats         host and per-process sampling, server ping, history for charts
 ├── scheduler     cron and interval jobs: start, stop, restart, backup, command
 ├── backups       zip archives with excludes, retention, restore
-├── providers     server downloads: Vanilla, Paper, Purpur, Fabric, NeoForge, Bedrock
+├── providers     server downloads: Vanilla, Paper, Purpur, Fabric, NeoForge, Bedrock, and Rust through SteamCMD
 ├── events        broadcast bus that fans out to WebSocket subscribers
 └── mcp           the same data as tools and resources, for an assistant, behind an API key
 ```

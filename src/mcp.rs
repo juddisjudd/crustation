@@ -502,10 +502,11 @@ impl Crustation {
         Ok(Json(self.properties_of(&row).await?))
     }
 
-    /// Changes one key in `server.properties`. The value is checked against the
-    /// catalogue for that edition first, and the keys the panel writes itself
-    /// are refused. Minecraft reads the file once, at startup, so the server has
-    /// to be restarted for it to take. Needs the CONFIG permission.
+    /// Changes one key in `server.properties`, or one start-up setting on a Rust
+    /// server. The value is checked against the catalogue for that edition first,
+    /// and the keys the panel writes itself are refused. Either is read once, at
+    /// startup, so the server has to be restarted for it to take. Needs the
+    /// CONFIG permission.
     #[tool]
     async fn set_property(
         &self,
@@ -515,6 +516,19 @@ impl Crustation {
         let who = Self::caller(&parts)?;
         let row = self.find(who, &server, ServerPerm::Config).await?;
 
+        if row.kind == crate::rust_game::KIND {
+            let change = [(key, serde_json::Value::String(value))].into();
+            let crate::error::Ok(answer) = crate::api::properties::write_rust(
+                &self.state,
+                who,
+                &row,
+                change,
+                "changed server settings over MCP",
+            )
+            .await
+            .map_err(refused)?;
+            return Ok(Json(answer));
+        }
         if crate::properties::is_reserved(&key) {
             return Err(ErrorData::invalid_params(
                 format!("The panel writes '{key}' itself; change it on the server instead."),
@@ -693,6 +707,12 @@ impl Crustation {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         let who = Self::caller(&parts)?;
         let row = self.find(who, &server, ServerPerm::Files).await?;
+        if !row.kind.starts_with("minecraft_") {
+            return Err(ErrorData::invalid_request(
+                "Only Minecraft servers have add-ons.",
+                None,
+            ));
+        }
         let bedrock = row.kind == "minecraft_bedrock";
         let level = crate::api::packs::level_name(&row, bedrock).await;
         let directory = PathBuf::from(&row.directory);
@@ -764,6 +784,11 @@ impl Crustation {
         &self,
         row: &ServerRow,
     ) -> Result<std::collections::BTreeMap<String, String>, ErrorData> {
+        if row.kind == crate::rust_game::KIND {
+            return Ok(crate::rust_game::visible_convars(&row.command)
+                .into_iter()
+                .collect());
+        }
         let path = crate::properties::path_in(&PathBuf::from(&row.directory));
         Ok(crate::properties::Properties::load_if_present(&path)
             .await

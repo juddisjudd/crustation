@@ -153,8 +153,8 @@
 
 <svelte:head><title>{t('admin.roles.title')} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-6xl px-4 py-8 md:px-8">
-	<PageHeader title={t('admin.roles.title')} description={t('admin.roles.description')}>
+<div class="page py-6">
+	<PageHeader title={t('admin.roles.title')}>
 		{#snippet actions()}
 			<Button onclick={startAdd}>
 				<PlusIcon />
@@ -280,16 +280,12 @@
 				</div>
 				{#if fieldErrors.global_permissions}
 					<Field.Error>{fieldErrors.global_permissions}</Field.Error>
-				{:else}
-					<Field.Description>{t('admin.roles.field.globalHint')}</Field.Description>
 				{/if}
 			</Field.Field>
 
-			<Field.Field data-invalid={!!fieldErrors.servers}>
-				<Field.Label>{t('admin.roles.field.servers')}</Field.Label>
-				{#if servers.list.length === 0}
-					<Field.Description>{t('admin.roles.field.noServers')}</Field.Description>
-				{:else}
+			{#if servers.list.length > 0}
+				<Field.Field data-invalid={!!fieldErrors.servers}>
+					<Field.Label>{t('admin.roles.field.servers')}</Field.Label>
 					<div class="space-y-4">
 						{#each servers.list as entry (entry.id)}
 							<div class="rounded-lg border p-3">
@@ -308,13 +304,13 @@
 							</div>
 						{/each}
 					</div>
-				{/if}
-				{#if fieldErrors.servers}
-					<Field.Error>{fieldErrors.servers}</Field.Error>
-				{:else}
-					<Field.Description>{t('admin.roles.field.serversHint')}</Field.Description>
-				{/if}
-			</Field.Field>
+					{#if fieldErrors.servers}
+						<Field.Error>{fieldErrors.servers}</Field.Error>
+					{:else}
+						<Field.Description>{t('admin.roles.field.serversHint')}</Field.Description>
+					{/if}
+				</Field.Field>
+			{/if}
 		</div>
 
 		<Dialog.Footer>

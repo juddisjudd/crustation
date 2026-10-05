@@ -22,7 +22,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import * as Command from '$lib/components/ui/command/index.js';
-	import StatusDot from './status-dot.svelte';
+	import ServerMark from '$lib/components/servers/server-mark.svelte';
 	import { servers } from '$lib/servers.svelte';
 	import { session } from '$lib/session.svelte';
 	import { powerAction } from '$lib/api/servers';
@@ -59,7 +59,11 @@
 						value={`server ${server.name} ${server.id}`}
 						onSelect={() => run(() => goto(resolve(`/servers/${server.id}`)))}
 					>
-						<StatusDot status={servers.statusOf(server.id)} class="mx-1" />
+						<ServerMark
+							kind={server.kind}
+							status={servers.statusOf(server.id)}
+							ring="ring-popover"
+						/>
 						<span>{server.name}</span>
 					</Command.Item>
 				{/each}
@@ -85,7 +89,7 @@
 		{#if servers.list.some((server) => server.permissions.includes('COMMANDS'))}
 			<Command.Group heading={t('nav.groupActions')}>
 				{#each servers.list.filter( (server) => server.permissions.includes('COMMANDS') ) as server (server.id)}
-					{@const running = servers.isRunning(server.id)}
+					{@const running = servers.isLive(server.id)}
 					<Command.Item
 						value={`${running ? 'stop' : 'start'} ${server.name}`}
 						onSelect={() =>

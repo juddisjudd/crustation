@@ -108,26 +108,89 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   and writing the files, and the add-ons with their notes, plus the same ground as resources. It is the panel's own permissions
   throughout — the key is an API key, a session cookie is refused, and every call goes through
   the check the REST route would have made. Writes land in the audit log marked as MCP.
+- Rust, the game. Installed through SteamCMD, which the panel fetches once into the config
+  volume and runs with progress reported like any other download. Map, seed, size, slots and PvE
+  are chosen at creation and go on the command line, RCON is switched on over the loopback with a
+  generated password and used for commands and a clean `quit`, and status comes from the Steam
+  query.
+- Rust, tried on a live server. The install reports each SteamCMD step (updating itself, signing
+  in, making room, the download with its size, checking, moving into place) instead of one
+  silent bar. RCON skips the log lines Rust streams down the same socket and the empty packet it
+  sends for a silent command, so every command answers in well under a second. Player counts
+  come from the `cp` and `mp` query tags, since the byte fields wrap at 255. The settings
+  defaults match what the game reports, and the players, add-on and bridge routes refuse a Rust
+  server instead of writing Minecraft files into it.
+- Rust on websocket RCON, over one socket kept open per server, so the panel's own commands
+  never reach the console and Rust's one-second reconnect cooldown never bites. Existing servers
+  move over on their next start.
+- Rust players: who is on (`playerlist`) and a roster built from it, kick, ban for a while or for
+  good, unban, owners and moderators, mute, teleport and give. A stopped server gets the edit in
+  `bans.cfg` or `users.cfg` instead, and a ban is saved with `server.writecfg` straight away,
+  since Rust otherwise holds it in memory until something else saves.
+- Rust chat from `chat.tail`, with a box to talk as the server; chat now uses the console's
+  full width on every server.
+- Rust wipes: map, blueprints or everything, with an optional new seed, never touching
+  `companion.id`, `player.tokens` or `cfg/`.
+- Rust updates: the installed build against the newest on its branch, checked every half hour,
+  and an update that counts down in chat, stops, runs SteamCMD and starts again.
+- Schedules on every server: repeat, cron (both day fields have to match, so "first Thursday" can
+  be said) and after another schedule; start, stop, restart with a countdown in chat, or a
+  command, and on Rust a wipe or an update, optionally only when Steam has a newer build. Each
+  keeps what its last run did. Presets cover a nightly restart, a weekly map wipe, the monthly
+  full wipe and updating whenever Facepunch ships.
+- Oxide and Carbon on Rust, installed, swapped and taken off from a Plugins tab. Taking Oxide off
+  runs Steam's check and deletes Oxide's own files; an update puts Oxide back, since the check
+  replaces the assemblies it patched. Carbon goes on through Unity Doorstop on the start command
+  and leaves the game alone. Plugins upload, switch off, delete, install and update from uMod,
+  and a running framework is told to load or unload each one, since its file watcher cannot be
+  relied on across a mounted drive.
+- Rust chat arrives as it is said over the open RCON socket, and `serverinfo` feeds a health card
+  with frame rate, entities, queue and network.
+- More Rust settings: tutorial island, hidden player names, F7 reports in the console, save
+  backups, boombox radios, a favourites address, creative mode, the wipe timer's cron line, and the
+  Rust+ port and address, with Rust+ published in Docker.
+- F7 reports and a shared ban list on Rust. A server can post its reports to the panel, which
+  keeps them with their screenshots on the players page, and can ask the panel about every player
+  who joins. The list is edited by an administrator only, and a new ban kicks the player off every
+  running server that uses it, since Rust only asks at join. Both hooks are answered on the
+  loopback alone, which is where a game server in the same container comes from, and the report
+  hook also wants the key the panel wrote onto that server's start command.
+- A tag picker for Rust's server browser tags, one chip per tag, which keeps to one tag from each
+  exclusive group (wipe schedule, difficulty, region); the panel refuses a mix that breaks the
+  rule. Rust+ shows on the health card as off, listening, or failed with what Rust said about
+  why, since a failed connectivity test otherwise only scrolls past in the console.
 
 ## Next
 
-1. **Schedules.** Interval, cron and chained triggers; run now; next-run calculation. A scheduled
-   restart broadcasts a warning ladder in game before it stops the server.
-2. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
+1. **Content.** Modrinth search, install, dependency resolution and update checks, disabling by
    rename rather than delete. Bedrock behaviour and resource packs with their two manifests.
    Datapacks. Worlds: switch `level-name`, upload, download, generate from a seed, reset the Nether
    and the End. Bedrock keeps its experiment toggles, Beta APIs among them, in the world's
    `level.dat` rather than in `server.properties`, so turning those on means reading and writing
    Bedrock's little-endian NBT. Java needs none of that: its experiments arrive as feature packs
    named in `initial-enabled-packs`, which server creation already offers.
-3. **Guarded upgrades.** Keep a copy of the old jar, swap it, start, and put the old one back on
+2. **Guarded upgrades.** Keep a copy of the old jar, swap it, start, and put the old one back on
    its own if the server never reaches ready. Originally this leaned on the backup manager; with
    backups moved out it keeps its own copy instead, which is all the rollback actually needs.
-4. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
+3. **Webhooks and alerts.** Discord, Slack, Mattermost, Teams; event triggers; test send. Crash and
    failed-backup notifications, and browser push through the manifest the interface already ships.
-5. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
+4. **Metrics and health.** Range queries with downsampling behind the charts. TPS and MSPT from
    RCON on Paper, with "Can't keep up!" and stack traces lifted out of the console stream.
-6. **Public status page**, panel settings, branding.
+5. **Public status page**, panel settings, branding.
+
+## Rust parity
+
+What the other Rust panels do, in the order worth doing it. Every command named here was checked
+against a live server or the Facepunch wiki.
+
+Most of it is done (see above). Still to come:
+
+1. **Custom map hosting.** Players download a custom map from its link, so serving an uploaded
+   .map means the panel answering the internet. Waits for `CRUSTATION_PUBLIC_URL` to be set.
+2. **A circle preview for the server icon**, with a check on its size.
+
+The branch list is fixed at release, staging and aux02 for now; Steam's own list rotates, so it
+should come from `app_info_print`.
 
 ## Alongside
 
@@ -143,5 +206,6 @@ Unblocked by the list above, and most of what makes the panel feel finished:
   `backups` table and the volume stay where they are for whenever it is.
 - Two-factor authentication and passkeys (the schema already has a place for them).
 - A Docker backend for the supervisor, so each game server can run in its own container.
-- Non-Minecraft games: Hytale, SteamCMD titles.
+- Non-Minecraft games: Hytale, and SteamCMD titles beyond Rust. Rust itself is in; the SteamCMD
+  install and the Source query are generic and wait for a second game to prove it.
 - Multi-node: one panel, several machines.

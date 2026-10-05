@@ -37,7 +37,7 @@ async fn items(
     identity
         .require_server(&state.db, id, ServerPerm::Commands)
         .await?;
-    let row = super::servers::load(&state, id).await?;
+    let row = super::servers::load_minecraft(&state, id).await?;
 
     // Somebody is about to look at a list of items, so this is the moment the
     // pictures are worth having. It runs once and returns at once.
@@ -116,7 +116,7 @@ async fn located(
     identity
         .require_server(&state.db, id, ServerPerm::Players)
         .await?;
-    let row = super::servers::load(state, id).await?;
+    let row = super::servers::load_minecraft(state, id).await?;
     Ok((PathBuf::from(&row.directory), row.kind))
 }
 
@@ -579,7 +579,7 @@ async fn act(
     identity
         .require_server(&state.db, id, body.permission())
         .await?;
-    let row = super::servers::load(&state, id).await?;
+    let row = super::servers::load_minecraft(&state, id).await?;
     let directory = PathBuf::from(&row.directory);
     let kind = row.kind.as_str();
     let bedrock = kind == "minecraft_bedrock";

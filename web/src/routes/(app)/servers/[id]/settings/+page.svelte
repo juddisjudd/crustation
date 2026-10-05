@@ -1,7 +1,9 @@
 <script lang="ts">
+	import EraserIcon from '@lucide/svelte/icons/eraser';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { toast } from 'svelte-sonner';
+	import { untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -10,11 +12,14 @@
 	import { Spinner } from '$lib/components/ui/spinner/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import * as Field from '$lib/components/ui/field/index.js';
+	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import SettingsCard from '$lib/components/settings-card.svelte';
-	import { confirmWith } from '$lib/components/confirm/confirm.svelte';
+	import RustTags from '$lib/components/servers/rust-tags.svelte';
+	import { confirm, confirmWith } from '$lib/components/confirm/confirm.svelte';
 	import { ApiError } from '$lib/api/client';
 	import { deleteServer, errorMessage } from '$lib/api/servers';
+	import { wipeRust, type RustWipe } from '$lib/api/rust';
 	import { servers } from '$lib/servers.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -38,9 +43,14 @@
 	let saving = $state(false);
 	let fieldErrors = $state.raw<Record<string, string>>({});
 	let deleting = $state(false);
+	let wipeKind = $state<RustWipe>('map');
+	let newSeed = $state(true);
+	let wiping = $state(false);
 
 	const canConfigure = $derived(server.permissions.includes('CONFIG'));
-	const running = $derived(servers.isRunning(server.id));
+	// Rust keeps its settings on the start command rather than in a file.
+	const rust = $derived(server.kind === 'rust');
+	const running = $derived(servers.isLive(server.id));
 
 	async function erase() {
 		const { confirmed, checked } = await confirmWith({
@@ -61,6 +71,30 @@
 		} catch (err) {
 			toast.error(t('settings.danger.failed'), { description: errorMessage(err) });
 			deleting = false;
+		}
+	}
+
+	async function wipe() {
+		const confirmed = await confirm({
+			title: t('settings.wipe.confirmTitle', { name: server.name }),
+			description: t('settings.wipe.confirmBody'),
+			confirmLabel: t('settings.wipe.button'),
+			destructive: true
+		});
+		if (!confirmed) return;
+
+		wiping = true;
+		try {
+			const result = await wipeRust(server.id, wipeKind, newSeed);
+			toast.success(plural('settings.wipe.done', result.deleted.length), {
+				description:
+					result.seed === null ? undefined : t('settings.wipe.seed', { seed: result.seed })
+			});
+			if (result.seed !== null) await load();
+		} catch (err) {
+			toast.error(t('settings.wipe.failed'), { description: errorMessage(err) });
+		} finally {
+			wiping = false;
 		}
 	}
 
@@ -102,10 +136,12 @@
 		}
 	}
 
+	// The server object is replaced on any state change; only a new id should drop unsaved edits.
+	const serverId = $derived(server.id);
+
 	$effect(() => {
-		// Re-reads when the page moves to another server.
-		void server.id;
-		load();
+		void serverId;
+		untrack(load);
 	});
 
 	async function save() {
@@ -136,13 +172,17 @@
 
 <svelte:head><title>{t('nav.tabs.settings')} · {server.name} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
+<div class="page py-4">
 	<div
 		class="sticky top-12 z-9 -mx-4 flex flex-wrap items-end justify-between gap-4 bg-background/90 px-4 py-2 backdrop-blur md:-mx-8 md:px-8"
 	>
 		<div>
-			<h1 class="text-base font-semibold tracking-tight">{t('settings.title')}</h1>
-			<p class="mt-1 text-sm text-muted-foreground">{t('settings.description')}</p>
+			<h1 class="text-base font-semibold tracking-tight">
+				{rust ? t('settings.rust.title') : t('settings.title')}
+			</h1>
+			<p class="mt-1 text-sm text-muted-foreground">
+				{rust ? t('settings.rust.description') : t('settings.description')}
+			</p>
 		</div>
 		{#if changed.length}
 			<div class="flex items-center gap-2">
@@ -179,80 +219,95 @@
 		{/if}
 
 		<div class="mt-6 space-y-6">
-			{#each groups as group (group.name)}
-				<section class="rounded-lg border bg-card p-6">
-					<h2 class="mb-4 text-sm font-medium">{group.name}</h2>
-					<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-						{#each group.items as entry (entry.key)}
-							{@const invalid = !!fieldErrors[entry.key]}
-							<Field.Field data-invalid={invalid}>
-								{#if entry.type === 'flag'}
-									<Label class="font-normal">
-										<Checkbox
-											checked={shown(entry) === 'true'}
-											onCheckedChange={(on) => (edits[entry.key] = on ? 'true' : 'false')}
+			<div class="grid items-start gap-6 xl:grid-cols-2">
+				{#each groups as group (group.name)}
+					<section class="rounded-lg border bg-card p-6">
+						<h2 class="mb-4 text-sm font-medium">{group.name}</h2>
+						<div class="grid gap-4 sm:grid-cols-2 xl:max-2xl:grid-cols-1">
+							{#each group.items as entry (entry.key)}
+								{@const invalid = !!fieldErrors[entry.key]}
+								<Field.Field data-invalid={invalid}>
+									{#if entry.type === 'flag'}
+										<Label class="font-normal">
+											<Checkbox
+												checked={shown(entry) === 'true'}
+												onCheckedChange={(on) => (edits[entry.key] = on ? 'true' : 'false')}
+											/>
+											{entry.label}
+										</Label>
+									{:else}
+										<Field.Label for={entry.key}>{entry.label}</Field.Label>
+									{/if}
+
+									{#if entry.type === 'choice'}
+										<Select.Root
+											type="single"
+											value={shown(entry)}
+											onValueChange={(picked) => (edits[entry.key] = picked)}
+										>
+											<Select.Trigger id={entry.key} class="w-full">
+												{optionLabel(shown(entry))}
+											</Select.Trigger>
+											<Select.Content>
+												{#each entry.options as option (option)}
+													<Select.Item value={option} label={optionLabel(option)} />
+												{/each}
+											</Select.Content>
+										</Select.Root>
+									{:else if entry.type === 'number' || entry.type === 'decimal'}
+										<Input
+											id={entry.key}
+											type="number"
+											min={entry.min}
+											max={entry.max}
+											step={entry.type === 'decimal' ? 'any' : undefined}
+											value={shown(entry)}
+											oninput={(event) => (edits[entry.key] = event.currentTarget.value)}
+											class="tabular-nums"
 										/>
-										{entry.label}
-									</Label>
-								{:else}
-									<Field.Label for={entry.key}>{entry.label}</Field.Label>
-								{/if}
+									{:else if entry.key === 'server.tags'}
+										<RustTags
+											id={entry.key}
+											value={shown(entry)}
+											onchange={(next) => (edits[entry.key] = next)}
+										/>
+									{:else if entry.type === 'text'}
+										<Input
+											id={entry.key}
+											value={shown(entry)}
+											placeholder={entry.default}
+											oninput={(event) => (edits[entry.key] = event.currentTarget.value)}
+										/>
+									{/if}
 
-								{#if entry.type === 'choice'}
-									<Select.Root
-										type="single"
-										value={shown(entry)}
-										onValueChange={(picked) => (edits[entry.key] = picked)}
-									>
-										<Select.Trigger id={entry.key} class="w-full">
-											{optionLabel(shown(entry))}
-										</Select.Trigger>
-										<Select.Content>
-											{#each entry.options as option (option)}
-												<Select.Item value={option} label={optionLabel(option)} />
-											{/each}
-										</Select.Content>
-									</Select.Root>
-								{:else if entry.type === 'number'}
-									<Input
-										id={entry.key}
-										type="number"
-										min={entry.min}
-										max={entry.max}
-										value={shown(entry)}
-										oninput={(event) => (edits[entry.key] = event.currentTarget.value)}
-										class="tabular-nums"
-									/>
-								{:else if entry.type === 'text'}
-									<Input
-										id={entry.key}
-										value={shown(entry)}
-										placeholder={entry.default}
-										oninput={(event) => (edits[entry.key] = event.currentTarget.value)}
-									/>
-								{/if}
-
-								{#if invalid}
-									<Field.Error>{fieldErrors[entry.key]}</Field.Error>
-								{:else if entry.help}
-									<Field.Description>{entry.help}</Field.Description>
-								{:else if !entry.set}
-									<Field.Description>{t('settings.unset')}</Field.Description>
-								{/if}
-							</Field.Field>
-						{/each}
-					</div>
-				</section>
-			{/each}
+									{#if invalid}
+										<Field.Error>{fieldErrors[entry.key]}</Field.Error>
+									{:else if entry.help}
+										<Field.Description>{entry.help}</Field.Description>
+									{:else if !entry.set}
+										<Field.Description>{t('settings.unset')}</Field.Description>
+									{/if}
+								</Field.Field>
+							{/each}
+						</div>
+					</section>
+				{/each}
+			</div>
 
 			<section class="rounded-lg border bg-card p-6">
 				<div class="mb-4 space-y-1.5">
-					<h2 class="text-sm font-medium">{t('settings.other.title')}</h2>
-					<p class="text-sm text-muted-foreground">{t('settings.other.description')}</p>
+					<h2 class="text-sm font-medium">
+						{rust ? t('settings.rust.otherTitle') : t('settings.other.title')}
+					</h2>
+					{#if rust}
+						<p class="text-sm text-muted-foreground">{t('settings.rust.otherDescription')}</p>
+					{/if}
 				</div>
 
 				{#if !editable.length && !managed.length}
-					<p class="text-sm text-muted-foreground">{t('settings.other.empty')}</p>
+					<p class="text-sm text-muted-foreground">
+						{rust ? t('settings.rust.otherEmpty') : t('settings.other.empty')}
+					</p>
 				{:else}
 					<div class="space-y-3">
 						{#each editable as entry (entry.key)}
@@ -286,14 +341,50 @@
 				{/if}
 			</section>
 
+			{#if canConfigure && rust}
+				<SettingsCard
+					destructive
+					title={t('settings.wipe.title')}
+					description={t('settings.wipe.description')}
+				>
+					<RadioGroup.Root bind:value={wipeKind} class="gap-3">
+						{#each ['map', 'blueprints', 'full'] as const as kind (kind)}
+							<Label class="items-start font-normal">
+								<RadioGroup.Item value={kind} class="mt-0.5" />
+								<span class="space-y-0.5">
+									<span class="block font-medium">{t(`settings.wipe.${kind}`)}</span>
+									<span class="block text-xs text-muted-foreground"
+										>{t(`settings.wipe.${kind}Hint`)}</span
+									>
+								</span>
+							</Label>
+						{/each}
+					</RadioGroup.Root>
+					{#if wipeKind !== 'blueprints'}
+						<Label class="font-normal">
+							<Checkbox bind:checked={newSeed} />
+							{t('settings.wipe.newSeed')}
+						</Label>
+					{/if}
+
+					{#snippet hint()}
+						{#if running}{t('settings.wipe.running')}{/if}
+					{/snippet}
+					{#snippet action()}
+						<Button variant="destructive" size="sm" disabled={running || wiping} onclick={wipe}>
+							{#if wiping}<Spinner class="size-4" />{:else}<EraserIcon />{/if}
+							{t('settings.wipe.button')}
+						</Button>
+					{/snippet}
+				</SettingsCard>
+			{/if}
+
 			{#if canConfigure}
 				<SettingsCard
 					destructive
 					title={t('settings.danger.title')}
 					description={t('settings.danger.description')}
 				>
-					<p class="text-sm text-muted-foreground">{t('settings.danger.filesHint')}</p>
-
 					{#snippet hint()}
 						{#if running}{t('settings.danger.running')}{/if}
 					{/snippet}

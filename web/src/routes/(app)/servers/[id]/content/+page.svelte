@@ -274,10 +274,8 @@
 
 <svelte:head><title>{t('content.title')} · {server.name} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 md:px-8">
-	<div class="flex flex-wrap items-start justify-between gap-4">
-		<p class="max-w-xl text-sm text-muted-foreground">{t('content.hint')}</p>
-
+<div class="page space-y-6 py-4">
+	<div class="flex flex-wrap items-start justify-end gap-4">
 		<div class="flex items-center gap-2">
 			{#if busy}<Spinner class="size-4" />{/if}
 			<Button size="sm" disabled={busy} onclick={() => addonInput?.click()}>
@@ -385,13 +383,9 @@
 							{stockCount ? t('content.onlyStock') : t('content.noPacks')}
 						{/if}
 					</Empty.Title>
-					<Empty.Description>
-						{#if searching}
-							{t('content.noMatchHint')}
-						{:else}
-							{stockCount ? t('content.onlyStockHint') : t('content.noPacksHint')}
-						{/if}
-					</Empty.Description>
+					{#if searching}
+						<Empty.Description>{t('content.noMatchHint')}</Empty.Description>
+					{/if}
 				</Empty.Header>
 			</Empty.Root>
 		{:else}
@@ -399,7 +393,7 @@
 				<Table.Root>
 					<Table.Header>
 						<Table.Row class="bg-muted/50 hover:bg-muted/50">
-							<Table.Head>{t('content.packs')}</Table.Head>
+							<Table.Head>{t('content.name')}</Table.Head>
 							<Table.Head class="hidden w-40 md:table-cell">{t('content.folder')}</Table.Head>
 							<Table.Head class="w-28">{t('content.active')}</Table.Head>
 							<Table.Head class="w-12"></Table.Head>
@@ -506,7 +500,7 @@
 				<Table.Root>
 					<Table.Header>
 						<Table.Row class="bg-muted/50 hover:bg-muted/50">
-							<Table.Head>{t('content.worlds')}</Table.Head>
+							<Table.Head>{t('content.name')}</Table.Head>
 							<Table.Head class="hidden w-40 md:table-cell">{t('content.folder')}</Table.Head>
 							<Table.Head class="w-40"></Table.Head>
 						</Table.Row>

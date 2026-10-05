@@ -6,6 +6,7 @@ export const chat = {
 	placeholderStopped: 'Start the server to talk',
 	send: 'Send',
 	asServer: 'Server',
+	team: 'Team',
 	joined: '{name} joined',
 	left: '{name} left',
 	earned: '{name} earned {what}',

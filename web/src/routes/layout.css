@@ -141,10 +141,32 @@
 	::selection {
 		@apply bg-info/25;
 	}
+	/* Tailwind 4 resets buttons to the default cursor. */
+	button:not(:disabled),
+	[role='button']:not([aria-disabled='true']),
+	summary,
+	select:not(:disabled),
+	input:is([type='checkbox'], [type='radio'], [type='file']):not(:disabled),
+	label:has(
+		input:is([type='checkbox'], [type='radio']),
+		[role='checkbox'],
+		[role='radio'],
+		[role='switch']
+	),
+	:is([role='checkbox'], [role='radio'], [role='switch']):not(:disabled) + label {
+		cursor: pointer;
+	}
 	code,
 	kbd,
 	pre,
 	samp {
 		@apply font-mono;
+	}
+}
+
+@layer components {
+	/* The width every app screen shares: fluid up to a very wide display, not a centred column. */
+	.page {
+		@apply mx-auto w-full max-w-[125rem] px-4 md:px-6 2xl:px-8;
 	}
 }

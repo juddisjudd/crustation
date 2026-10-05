@@ -17,10 +17,19 @@ mod ping;
 mod properties;
 mod providers;
 mod rcon;
+mod rust_game;
+mod rust_moderation;
+mod rust_mods;
+mod rust_players;
+mod rust_updates;
+mod rust_wipe;
+mod scheduler;
 mod state;
 mod stats;
+mod steam;
 mod supervisor;
 mod web;
+mod webrcon;
 
 use std::path::PathBuf;
 
@@ -65,10 +74,14 @@ async fn main() -> Result<()> {
 
     tokio::spawn(stats::collect(state.clone()));
     tokio::spawn(autostart(state.clone()));
+    tokio::spawn(rust_updates::watch(state.clone()));
+    tokio::spawn(scheduler::run_due(state.clone()));
 
     tracing::info!("Crustation is listening on http://{bind}");
 
     let supervisor = state.supervisor.clone();
+    // The hooks Rust calls are only answered on the loopback, which needs the caller's address.
+    let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             shutdown_signal().await;

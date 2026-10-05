@@ -229,6 +229,7 @@ pub enum Kind {
     Text,
     Flag,
     Number { min: i64, max: i64 },
+    Decimal { min: f64, max: f64 },
     Choice { options: &'static [&'static str] },
 }
 
@@ -671,11 +672,394 @@ const BEDROCK: &[Known] = &[
     },
 ];
 
+/// Rust has no settings file. These are console variables, handed to the server on
+/// its command line as `+name value` when it is made.
+const RUST: &[Known] = &[
+    Known {
+        key: "server.level",
+        label: "Map",
+        help: "Procedural generates a new map from the seed.",
+        group: "World",
+        default: "Procedural Map",
+        kind: Kind::Choice {
+            options: &[
+                "Procedural Map",
+                "Barren",
+                "HapisIsland",
+                "CraggyIsland",
+                "SavasIsland",
+            ],
+        },
+    },
+    Known {
+        key: "server.levelurl",
+        label: "Custom map link",
+        help: "A direct download link to a .map file. Leave the seed and map size empty when you use one.",
+        group: "World",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.seed",
+        label: "Seed",
+        help: "Leave empty for a random map. Only the procedural map uses it.",
+        group: "World",
+        default: "",
+        kind: Kind::Number {
+            min: 1,
+            max: 2_147_483_647,
+        },
+    },
+    Known {
+        key: "server.worldsize",
+        label: "Map size",
+        help: "Metres along one side. Bigger maps cost a lot more memory and disk.",
+        group: "World",
+        default: "3000",
+        kind: Kind::Number {
+            min: 1000,
+            max: 6000,
+        },
+    },
+    Known {
+        key: "server.saveinterval",
+        label: "Save interval",
+        help: "Seconds between saves of the world. A crash loses what happened since.",
+        group: "World",
+        default: "600",
+        kind: Kind::Number { min: 60, max: 3600 },
+    },
+    Known {
+        key: "server.maxplayers",
+        label: "Player slots",
+        help: "",
+        group: "Players",
+        default: "500",
+        kind: Kind::Number { min: 1, max: 1000 },
+    },
+    Known {
+        key: "server.gamemode",
+        label: "Game mode",
+        help: "Changing this part way through a wipe resets every player and their inventory.",
+        group: "Players",
+        default: "standard",
+        kind: Kind::Choice {
+            options: &["standard", "softcore", "hardcore", "primitive"],
+        },
+    },
+    Known {
+        key: "server.pve",
+        label: "Peaceful (PvE)",
+        help: "Players cannot hurt each other.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "relationshipmanager.maxteamsize",
+        label: "Team size",
+        help: "Most players allowed in one team.",
+        group: "Players",
+        default: "8",
+        kind: Kind::Number { min: 1, max: 100 },
+    },
+    Known {
+        key: "server.idlekick",
+        label: "Kick idle players",
+        help: "Minutes without input before a player is removed. 0 never kicks.",
+        group: "Players",
+        default: "30",
+        kind: Kind::Number { min: 0, max: 1440 },
+    },
+    Known {
+        key: "server.hostname",
+        label: "Server name",
+        help: "What the in-game list shows. Empty uses the name this server has in the panel.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.description",
+        label: "Description",
+        help: "Shown on the server's page in the in-game browser.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.url",
+        label: "Website",
+        help: "A link players can open from the server's page.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.headerimage",
+        label: "Header image",
+        help: "A direct link to a picture for the top of the server's page. 512 by 256 pixels works well.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.logoimage",
+        label: "Icon",
+        help: "A direct link to a 256 by 256 picture. It is shown in a circle, so keep the corners empty.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.tags",
+        label: "Tags",
+        help: "The server browser shows up to four.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.tickrate",
+        label: "Tick rate",
+        help: "Updates per second. Higher is smoother and costs more CPU.",
+        group: "Rules",
+        default: "10",
+        kind: Kind::Number { min: 1, max: 100 },
+    },
+    Known {
+        key: "craft.instant",
+        label: "Instant crafting",
+        help: "",
+        group: "Rules",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "server.stability",
+        label: "Building stability",
+        help: "Off lets structures stand without support.",
+        group: "Rules",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "server.radiation",
+        label: "Radiation",
+        help: "",
+        group: "Rules",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "decay.upkeep",
+        label: "Upkeep",
+        help: "Whether bases need materials in a tool cupboard to stay safe from decay.",
+        group: "Rules",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "decay.scale",
+        label: "Decay speed",
+        help: "1 is normal and 0 turns decay off. 2 is twice as fast.",
+        group: "Rules",
+        default: "1",
+        kind: Kind::Decimal {
+            min: 0.0,
+            max: 100.0,
+        },
+    },
+    Known {
+        key: "server.corpsedespawn",
+        label: "Corpse lifetime",
+        help: "Seconds before a body disappears.",
+        group: "Rules",
+        default: "300",
+        kind: Kind::Number { min: 0, max: 3600 },
+    },
+    Known {
+        key: "server.itemdespawn",
+        label: "Dropped item lifetime",
+        help: "Seconds before an item left on the ground disappears.",
+        group: "Rules",
+        default: "300",
+        kind: Kind::Number { min: 10, max: 3600 },
+    },
+    Known {
+        key: "bradley.enabled",
+        label: "Bradley APC",
+        help: "The armoured vehicle that guards the launch site.",
+        group: "Events",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "cargoship.event_enabled",
+        label: "Cargo ship",
+        help: "",
+        group: "Events",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "ai.npc_enable",
+        label: "Scientists and NPCs",
+        help: "Off removes the human NPCs at monuments.",
+        group: "Events",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "wipetimer.wipedayofweek",
+        label: "Wipe day",
+        help: "0 is Sunday and 6 is Saturday. Drives the countdown in game, and the end-of-wipe events, together with a wipe tag.",
+        group: "Wipe",
+        default: "4",
+        kind: Kind::Number { min: 0, max: 6 },
+    },
+    Known {
+        key: "wipetimer.wipehourofday",
+        label: "Wipe hour",
+        help: "24-hour clock. 14.5 is half past two in the afternoon.",
+        group: "Wipe",
+        default: "19",
+        kind: Kind::Decimal {
+            min: 0.0,
+            max: 23.99,
+        },
+    },
+    Known {
+        key: "wipetimer.wipetimezone",
+        label: "Wipe time zone",
+        help: "A time zone name such as Europe/London or America/New_York.",
+        group: "Wipe",
+        default: "Europe/London",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "wipetimer.wipecronoverride",
+        label: "Wipe schedule",
+        help: "A cron line that replaces the day and hour, such as 0 19 1-7 * 4 for the first Thursday at 7pm.",
+        group: "Wipe",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.tutorialenabled",
+        label: "Tutorial island",
+        help: "Starts new players on a practice island. Add the tut tag so the browser says so.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "server.censorplayerlist",
+        label: "Hide player names",
+        help: "Keeps who is on out of the server browser.",
+        group: "Players",
+        default: "true",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "server.printreportstoconsole",
+        label: "F7 reports in the console",
+        help: "Prints what players report with F7, so it shows in the console here.",
+        group: "Players",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "server.savebackupcount",
+        label: "Save backups kept",
+        help: "Earlier saves Rust keeps beside the current one.",
+        group: "World",
+        default: "2",
+        kind: Kind::Number { min: 0, max: 20 },
+    },
+    Known {
+        key: "boombox.serverurllist",
+        label: "Radio stations",
+        help: "Name,URL pairs for boomboxes, comma-separated. Each URL has to be a direct audio stream.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "server.favoritesendpoint",
+        label: "Favourites address",
+        help: "A host name with an SRV record for the game port, so favourites survive an IP change.",
+        group: "Listing",
+        default: "",
+        kind: Kind::Text,
+    },
+    Known {
+        key: "creative.allusers",
+        label: "Creative for everyone",
+        help: "Every player builds and crafts for free.",
+        group: "Creative",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "creative.freebuild",
+        label: "Free building",
+        help: "",
+        group: "Creative",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "creative.freeplacement",
+        label: "Place anywhere",
+        help: "Ignores the rules about where things can go.",
+        group: "Creative",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "creative.freerepair",
+        label: "Free repairs",
+        help: "",
+        group: "Creative",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "creative.unlimitedio",
+        label: "Unlimited electricity",
+        help: "Electrical and industrial parts run without power.",
+        group: "Creative",
+        default: "false",
+        kind: Kind::Flag,
+    },
+    Known {
+        key: "app.port",
+        label: "Rust+ port",
+        help: "The TCP port the Rust+ app reaches. Empty picks the game port plus 68, -1 turns Rust+ off, and Docker has to publish it.",
+        group: "Rust+",
+        default: "",
+        kind: Kind::Number {
+            min: -1,
+            max: 65535,
+        },
+    },
+    Known {
+        key: "app.publicip",
+        label: "Rust+ public address",
+        help: "The address phones reach the server on, for a server behind Docker or a router.",
+        group: "Rust+",
+        default: "",
+        kind: Kind::Text,
+    },
+];
+
 /// What may be set when a server of this kind is made. The panel writes the port
 /// and the RCON keys itself, so they are deliberately absent.
 pub fn catalogue(kind: &str) -> &'static [Known] {
     match kind {
         "minecraft_bedrock" => BEDROCK,
+        crate::rust_game::KIND => RUST,
         _ => JAVA,
     }
 }
@@ -720,6 +1104,9 @@ pub fn check_raw(key: &str, value: &str) -> std::result::Result<String, String> 
 /// wants it written.
 pub fn check(entry: &Known, value: &str) -> std::result::Result<String, String> {
     let value = value.trim();
+    if entry.key == "server.tags" {
+        return crate::rust_game::check_tags(value);
+    }
     match entry.kind {
         Kind::Flag => match value {
             "true" | "false" => Ok(value.to_string()),
@@ -729,6 +1116,13 @@ pub fn check(entry: &Known, value: &str) -> std::result::Result<String, String> 
             Ok(number) if (min..=max).contains(&number) => Ok(number.to_string()),
             Ok(_) => Err(format!("Choose a number between {min} and {max}.")),
             Err(_) => Err("This has to be a whole number.".into()),
+        },
+        Kind::Decimal { min, max } => match value.parse::<f64>() {
+            Ok(number) if number.is_finite() && (min..=max).contains(&number) => {
+                Ok(number.to_string())
+            }
+            Ok(_) => Err(format!("Choose a number between {min} and {max}.")),
+            Err(_) => Err("This has to be a number.".into()),
         },
         Kind::Choice { options } => match options.contains(&value) {
             true => Ok(value.to_string()),
@@ -870,9 +1264,14 @@ mod tests {
     /// Every default has to satisfy the rule the panel enforces for that key.
     #[test]
     fn every_default_passes_its_own_check() {
-        for kind in ["minecraft_java", "minecraft_bedrock"] {
+        for kind in [
+            "minecraft_java",
+            "minecraft_bedrock",
+            crate::rust_game::KIND,
+        ] {
             for entry in catalogue(kind) {
-                if matches!(entry.kind, Kind::Text) && entry.default.is_empty() {
+                // Left empty, these are simply not set.
+                if entry.default.is_empty() {
                     continue;
                 }
                 assert!(

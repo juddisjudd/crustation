@@ -10,6 +10,7 @@
 	import Meter from '$lib/components/meter.svelte';
 	import Sparkline from '$lib/components/sparkline.svelte';
 	import StatusDot from '$lib/components/shell/status-dot.svelte';
+	import ServerMark from '$lib/components/servers/server-mark.svelte';
 	import ServerActionsMenu from '$lib/components/servers/server-actions-menu.svelte';
 	import { recentStats } from '$lib/api/servers';
 	import { servers, statusLabel } from '$lib/servers.svelte';
@@ -62,7 +63,7 @@
 
 <svelte:head><title>{t('dashboard.title')} · Crustation</title></svelte:head>
 
-<div class="mx-auto w-full max-w-6xl px-4 py-8 md:px-8">
+<div class="page py-6">
 	<div class="flex flex-wrap items-end justify-between gap-4">
 		<div>
 			<h1 class="text-2xl font-semibold tracking-tight">{t('dashboard.title')}</h1>
@@ -82,74 +83,76 @@
 		{/if}
 	</div>
 
-	<section
-		aria-label={t('dashboard.hostUsage')}
-		class="mt-8 grid grid-cols-2 overflow-hidden rounded-lg border bg-border lg:grid-cols-4"
-		style="gap: 1px"
-	>
-		{@render tile(
-			t('dashboard.hostCpu'),
-			percent(host.stats?.cpu.percent),
-			host.stats?.cpu.percent,
-			host.stats ? t('dashboard.cores', { cores: host.stats.cpu.cores }) : '',
-			'usage',
-			!!host.stats
-		)}
-		{@render tile(
-			t('dashboard.hostMemory'),
-			percent(host.stats?.memory.used_percent),
-			host.stats?.memory.used_percent,
-			host.stats
-				? t('dashboard.memoryOf', {
-						used: bytes(host.stats.memory.used_bytes),
-						total: bytes(host.stats.memory.total_bytes)
-					})
-				: '',
-			'usage',
-			!!host.stats
-		)}
-		{@render tile(
-			t('dashboard.servers'),
-			`${totals.running}/${totals.total}`,
-			totals.total ? (totals.running / totals.total) * 100 : 0,
-			t('dashboard.stoppedCount', { count: totals.stopped }),
-			'neutral'
-		)}
-		{@render tile(
-			t('dashboard.players'),
-			String(totals.players),
-			null,
-			totals.maxPlayers
-				? t('dashboard.slotsOf', { max: totals.maxPlayers })
-				: t('dashboard.acrossRunning')
-		)}
-	</section>
-
-	{#if host.stats?.disks.length}
+	<div class="mt-6 grid gap-4 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
 		<section
-			aria-label={t('dashboard.storage')}
-			class="mt-4 grid gap-4 rounded-lg border p-4 sm:grid-cols-2"
+			aria-label={t('dashboard.hostUsage')}
+			class="grid grid-cols-2 overflow-hidden rounded-lg border bg-border lg:grid-cols-4"
+			style="gap: 1px"
 		>
-			{#each host.stats.disks as disk (disk.mount)}
-				{@const keeps = disk.keeps.map((one) => t(`dashboard.keeps.${one}`)).join(' · ')}
-				<div class="space-y-2">
-					<div class="flex items-baseline justify-between gap-2">
-						<span class="truncate text-sm font-medium">{keeps}</span>
-						<span class="shrink-0 text-xs text-muted-foreground tabular-nums">
+			{@render tile(
+				t('dashboard.hostCpu'),
+				percent(host.stats?.cpu.percent),
+				host.stats?.cpu.percent,
+				host.stats ? t('dashboard.cores', { cores: host.stats.cpu.cores }) : '',
+				'usage',
+				!!host.stats
+			)}
+			{@render tile(
+				t('dashboard.hostMemory'),
+				percent(host.stats?.memory.used_percent),
+				host.stats?.memory.used_percent,
+				host.stats
+					? t('dashboard.memoryOf', {
+							used: bytes(host.stats.memory.used_bytes),
+							total: bytes(host.stats.memory.total_bytes)
+						})
+					: '',
+				'usage',
+				!!host.stats
+			)}
+			{@render tile(
+				t('dashboard.servers'),
+				`${totals.running}/${totals.total}`,
+				totals.total ? (totals.running / totals.total) * 100 : 0,
+				t('dashboard.stoppedCount', { count: totals.stopped }),
+				'neutral'
+			)}
+			{@render tile(
+				t('dashboard.players'),
+				String(totals.players),
+				null,
+				totals.maxPlayers
+					? t('dashboard.slotsOf', { max: totals.maxPlayers })
+					: t('dashboard.acrossRunning')
+			)}
+		</section>
+
+		{#if host.stats?.disks.length}
+			<section
+				aria-label={t('dashboard.storage')}
+				class="grid content-center gap-4 rounded-lg border p-4 sm:grid-cols-3"
+			>
+				{#each host.stats.disks as disk (disk.mount)}
+					{@const keeps = disk.keeps.map((one) => t(`dashboard.keeps.${one}`)).join(' · ')}
+					<div class="space-y-2">
+						<div class="flex items-baseline justify-between gap-2">
+							<span class="truncate text-sm font-medium">{keeps}</span>
+							<span class="shrink-0 font-mono text-[11px] text-muted-foreground">{disk.mount}</span>
+						</div>
+						<Meter value={disk.used_percent} label={t('dashboard.diskUsage', { mount: keeps })} />
+						<p class="truncate text-xs text-muted-foreground tabular-nums">
 							{t('dashboard.freeOf', {
 								free: bytes(disk.free_bytes),
 								total: bytes(disk.total_bytes)
 							})}
-						</span>
+						</p>
 					</div>
-					<Meter value={disk.used_percent} label={t('dashboard.diskUsage', { mount: keeps })} />
-					<p class="truncate font-mono text-[11px] text-muted-foreground">{disk.mount}</p>
-				</div>
-			{/each}
-		</section>
-	{/if}
+				{/each}
+			</section>
+		{/if}
+	</div>
 
-	<section class="mt-10" aria-labelledby="servers-heading">
+	<section class="mt-8" aria-labelledby="servers-heading">
 		<div class="mb-4 flex items-center gap-2">
 			<h2 id="servers-heading" class="sr-only">{t('dashboard.servers')}</h2>
 			<InputGroup.Root class="max-w-sm">
@@ -163,7 +166,7 @@
 		</div>
 
 		{#if !servers.loaded}
-			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<div class="grid grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-4">
 				{#each [0, 1, 2] as i (i)}
 					<Skeleton class="h-40 rounded-lg" />
 				{/each}
@@ -173,7 +176,6 @@
 				<Empty.Header>
 					<Empty.Media variant="icon"><ServerIcon /></Empty.Media>
 					<Empty.Title>{t('dashboard.emptyTitle')}</Empty.Title>
-					<Empty.Description>{t('dashboard.emptyBody')}</Empty.Description>
 				</Empty.Header>
 				{#if session.can('CREATE_SERVER')}
 					<Empty.Content>
@@ -189,7 +191,7 @@
 				{t('dashboard.noMatch', { query })}
 			</p>
 		{:else}
-			<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<ul class="grid grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-4">
 				{#each filtered as server (server.id)}
 					{@const metrics = servers.metrics(server.id)}
 					{@const status = servers.statusOf(server.id)}
@@ -198,6 +200,7 @@
 						class="group relative flex flex-col rounded-lg border bg-card p-4 transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-xs"
 					>
 						<div class="flex items-start gap-3">
+							<ServerMark kind={server.kind} tile />
 							<div class="min-w-0 flex-1">
 								<a
 									{href}

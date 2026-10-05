@@ -25,6 +25,5 @@ export const dashboard = {
 	},
 	searchServers: 'Search servers…',
 	emptyTitle: 'No servers yet',
-	emptyBody: 'Server creation is not built yet. The roadmap has it next.',
 	noMatch: 'No servers match “{query}”.'
 } as const;

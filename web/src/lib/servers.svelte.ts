@@ -72,6 +72,11 @@ class Servers {
 		return this.statusOf(id) === 'running';
 	}
 
+	/** Has a process, whether it is still booting, up, or on its way down. */
+	isLive(id: string) {
+		return ['starting', 'running', 'stopping'].includes(this.statusOf(id));
+	}
+
 	metrics(id: string) {
 		const server = this.get(id);
 		const live = this.live.get(id);

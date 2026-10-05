@@ -1,19 +1,28 @@
 export const create = {
 	title: 'New server',
-	description: 'Download a server, or import one you already have.',
+	game: {
+		title: 'Game'
+	},
+	type: {
+		title: 'Server type',
+		java: 'Java Edition',
+		bedrock: 'Bedrock Edition',
+		other: 'Already have one',
+		import: 'Import a server'
+	},
 	tabs: {
 		install: 'Install',
 		import: 'Import'
 	},
 	source: {
 		title: 'What to run',
-		installDescription: 'Crustation downloads the server and sets it up for you.',
-		importDescription: 'Bring in a server that already exists.',
+		branch: 'Branch',
 		version: 'Version',
 		versionPlaceholder: 'Choose a version',
 		loadingVersions: 'Loading versions…',
 		versionsFailed: 'Could not load the versions for {provider}.',
 		showUnstable: 'Show snapshots and pre-releases',
+		showUnstableRust: 'Show staging and test branches',
 		noVersions: 'No versions to choose from.'
 	},
 	import: {
@@ -25,7 +34,6 @@ export const create = {
 		file: 'Archive',
 		uploading: 'Uploading…',
 		uploaded: 'Uploaded {name}',
-		uploadHint: 'A zip of the server folder.',
 		root: 'Folder inside the archive',
 		rootTop: 'The top level',
 		rootHint: 'The folder holding server.properties.',
@@ -58,7 +66,6 @@ export const create = {
 	},
 	properties: {
 		title: 'Server settings',
-		description: 'Written into server.properties. Everything else keeps its default.',
 		show: 'Change the world and player settings',
 		failed: 'Could not load the settings for this kind of server.',
 		random: 'Random'
@@ -74,8 +81,13 @@ export const create = {
 	progress: {
 		title: 'Setting up {name}',
 		waiting: 'Starting…',
+		steamcmd: 'Setting up SteamCMD',
+		signing_in: 'Signing in to Steam',
 		resolving: 'Looking up the download',
+		preallocating: 'Making room on disk',
 		downloading: 'Downloading',
+		verifying: 'Checking the files',
+		committing: 'Moving the files into place',
 		extracting: 'Unpacking',
 		copying: 'Copying files',
 		installing: 'Running the installer',

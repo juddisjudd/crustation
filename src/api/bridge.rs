@@ -132,7 +132,7 @@ async fn located(
     permission: ServerPerm,
 ) -> Result<(PathBuf, String), ApiError> {
     identity.require_server(&state.db, id, permission).await?;
-    let row = super::servers::load(state, id).await?;
+    let row = super::servers::load_minecraft(state, id).await?;
     if row.kind != "minecraft_bedrock" {
         return Err(ApiError::conflict(
             "Only Bedrock needs the add-on. Java servers get all this over RCON.",

@@ -192,10 +192,7 @@
 				</section>
 
 				<section class="space-y-3">
-					<div>
-						<h3 class="text-sm font-medium">{t('content.notesFound')}</h3>
-						<p class="text-xs text-muted-foreground">{t('content.notesFoundBody')}</p>
-					</div>
+					<h3 class="text-sm font-medium">{t('content.notesFound')}</h3>
 
 					{#if grouped.length === 0}
 						<p class="text-xs text-muted-foreground">{t('content.notesNothingFound')}</p>

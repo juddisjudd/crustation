@@ -11,6 +11,7 @@
 	import { Spinner } from '$lib/components/ui/spinner/index.js';
 	import ServerActionsMenu from '$lib/components/servers/server-actions-menu.svelte';
 	import StatusBadge from '$lib/components/servers/status-badge.svelte';
+	import ServerMark from '$lib/components/servers/server-mark.svelte';
 	import { powerAction, type PowerAction } from '$lib/api/servers';
 	import { portClashes, servers } from '$lib/servers.svelte';
 	import { session } from '$lib/session.svelte';
@@ -28,6 +29,8 @@
 	const clashes = $derived(portClashes(servers.list, server.id));
 	const canCommand = $derived(server.permissions.includes('COMMANDS'));
 	const busy = $derived(status === 'installing' || server.flags.updating);
+	const live = $derived(servers.isLive(server.id));
+	const stopping = $derived(status === 'stopping');
 	const address = $derived(
 		`${!server.address.host || server.address.host === '0.0.0.0' ? location.hostname : server.address.host}:${server.address.port}`
 	);
@@ -72,29 +75,30 @@
 </script>
 
 <div class="border-b">
-	<div class="mx-auto w-full max-w-6xl px-4 pt-6 md:px-8">
-		<div class="flex flex-wrap items-start gap-4">
+	<div class="page pt-4">
+		<div class="flex flex-wrap items-center gap-4">
 			<div class="min-w-0 flex-1">
-				<div class="flex flex-wrap items-center gap-2">
-					<h1 class="truncate text-2xl font-semibold tracking-tight">{server.name}</h1>
+				<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+					<ServerMark kind={server.kind} tile />
+					<h1 class="truncate text-xl font-semibold tracking-tight">{server.name}</h1>
 					<StatusBadge {status} />
-				</div>
-				<div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-					<button
-						type="button"
-						class="inline-flex items-center gap-1.5 font-mono text-xs hover:text-foreground"
-						onclick={copyAddress}
-						title={t('server.copyAddress')}
-					>
-						{address}
-						{#if copied}<CheckIcon class="size-3" />{:else}<CopyIcon class="size-3" />{/if}
-					</button>
-					<span aria-hidden="true">·</span>
-					<span>{kindLabel(server.kind)}</span>
-					{#if metrics.version}
+					<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+						<button
+							type="button"
+							class="inline-flex items-center gap-1.5 font-mono text-xs hover:text-foreground"
+							onclick={copyAddress}
+							title={t('server.copyAddress')}
+						>
+							{address}
+							{#if copied}<CheckIcon class="size-3" />{:else}<CopyIcon class="size-3" />{/if}
+						</button>
 						<span aria-hidden="true">·</span>
-						<span class="truncate">{metrics.version}</span>
-					{/if}
+						<span>{kindLabel(server.kind)}</span>
+						{#if metrics.version}
+							<span aria-hidden="true">·</span>
+							<span class="truncate">{metrics.version}</span>
+						{/if}
+					</div>
 				</div>
 			</div>
 			{#if canCommand}
@@ -102,15 +106,23 @@
 					{#if busy}
 						<Button variant="outline" disabled>
 							<Spinner />
-							{t('server.installing')}
+							{server.flags.updating ? t('server.updating') : t('server.installing')}
 						</Button>
-					{:else if metrics.running}
-						<Button variant="outline" disabled={!!pending} onclick={() => power('restart')}>
+					{:else if live}
+						<Button
+							variant="outline"
+							disabled={!!pending || stopping}
+							onclick={() => power('restart')}
+						>
 							{#if pending === 'restart'}<Spinner />{:else}<RotateCcwIcon />{/if}
 							{t('common.server.action.restart')}
 						</Button>
-						<Button variant="outline" disabled={!!pending} onclick={() => power('stop')}>
-							{#if pending === 'stop'}<Spinner />{:else}<SquareIcon />{/if}
+						<Button
+							variant="outline"
+							disabled={!!pending || stopping}
+							onclick={() => power('stop')}
+						>
+							{#if pending === 'stop' || stopping}<Spinner />{:else}<SquareIcon />{/if}
 							{t('common.server.action.stop')}
 						</Button>
 					{:else}
@@ -135,7 +147,7 @@
 
 		<nav
 			aria-label={t('nav.servers')}
-			class="mt-5 -mb-px flex [scrollbar-width:none] gap-1 overflow-x-auto"
+			class="mt-3 -mb-px flex [scrollbar-width:none] gap-1 overflow-x-auto"
 		>
 			{#each tabs as tab (tab.slug)}
 				{@const active = isActive(tab.slug)}

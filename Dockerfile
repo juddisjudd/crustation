@@ -45,6 +45,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home --shell /usr/sbin/nologin crustation
 
+# SteamCMD is a 32-bit program, which Rust and other Steam servers are installed through.
+# Valve only ships it for x86, so the layer is skipped on other architectures.
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        dpkg --add-architecture i386 \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends \
+            lib32gcc-s1 lib32stdc++6 lib32z1 libsdl2-2.0-0:i386 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 COPY --from=panel /src/target/release/crustation /usr/local/bin/crustation
 COPY --from=web /web/build /app/web
 COPY addons /app/addons
@@ -53,8 +63,8 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 VOLUME ["/config", "/servers", "/backups"]
 EXPOSE 8080
-# Minecraft Java, Bedrock and a range for extra servers
-EXPOSE 25565 19132/udp 25500-25600
+# Minecraft Java, Bedrock and a range for extra servers, then Rust's game, query and Rust+ ports
+EXPOSE 25565 19132/udp 25500-25600 28015/udp 28017/udp 28083
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
     CMD curl -fsS http://localhost:${CRUSTATION_PORT}/api/v1/health || exit 1

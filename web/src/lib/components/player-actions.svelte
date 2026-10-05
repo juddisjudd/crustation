@@ -257,7 +257,6 @@
 		{:else if asking === 'teleport'}
 			<Dialog.Header>
 				<Dialog.Title>{t('players.act.teleportTitle', { name: player })}</Dialog.Title>
-				<Dialog.Description>{t('players.act.teleportHint')}</Dialog.Description>
 			</Dialog.Header>
 			<div class="grid gap-3">
 				{#if others.length}
