@@ -68,6 +68,8 @@ export interface ServerSettings {
 	command: string;
 	/** Rust only: the settings on its start command, without the RCON password. */
 	convars?: Record<string, string> | null;
+	/** Rust only: the plugin framework installed, if any. */
+	framework?: 'oxide' | 'carbon' | null;
 	java: {
 		binary: string | null;
 		min_memory_mb: number;

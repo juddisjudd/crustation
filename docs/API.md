@@ -244,6 +244,7 @@ timer). `server.tags` is lower-cased and refused when it holds two tags from one
 (wipe schedule, difficulty, region). An empty value takes a setting off so the game's own default applies, and the ports,
 `server.identity` and the RCON settings are listed as managed and refuse writes. The password is
 never returned. `settings.convars` on the server object carries the same pairs for the overview,
+next to `settings.framework` (`"oxide"`, `"carbon"` or `null`, found as `/rust/mods` finds it),
 and changing `port` with `PATCH` moves the query and RCON ports with it. A change needs a restart.
 The Minecraft players, add-on and bridge routes answer `422` for a Rust server, which has its own:
 

@@ -111,6 +111,9 @@ pub async fn server_json(
             .into_iter()
             .collect::<BTreeMap<_, _>>()
     });
+    let framework = rust
+        .then(|| crate::rust_mods::detect(std::path::Path::new(&row.directory), &row.command))
+        .flatten();
 
     json!({
         "id": row.id,
@@ -132,6 +135,7 @@ pub async fn server_json(
             "executable": row.executable,
             "command": command,
             "convars": convars,
+            "framework": framework,
             "java": {
                 "binary": row.java_binary,
                 "min_memory_mb": row.min_memory_mb,

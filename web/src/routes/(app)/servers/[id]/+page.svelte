@@ -20,6 +20,7 @@
 		percent
 	} from '$lib/format';
 	import { t } from '$lib/i18n/index.svelte';
+	import { resolve } from '$app/paths';
 
 	let { data } = $props();
 
@@ -31,6 +32,9 @@
 	const minecraft = $derived(isMinecraft(server.kind));
 	const rust = $derived(server.kind === 'rust');
 	const convars = $derived(server.settings.convars ?? {});
+	const frameworkLabel = $derived(
+		t(`server.overview.rust.frameworks.${server.settings.framework ?? 'none'}`)
+	);
 	const host = $derived(
 		!server.address.host || server.address.host === '0.0.0.0'
 			? location.hostname
@@ -188,6 +192,21 @@
 								<dt class="text-muted-foreground">{t('server.overview.rust.gameMode')}</dt>
 								<dd class="mt-1">
 									{convars['server.gamemode'] ?? t('server.overview.rust.standard')}
+								</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.rust.framework')}</dt>
+								<dd class="mt-1">
+									{#if server.permissions.includes('FILES')}
+										<a
+											href={resolve(`/servers/${server.id}/plugins`)}
+											class="underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
+										>
+											{frameworkLabel}
+										</a>
+									{:else}
+										{frameworkLabel}
+									{/if}
 								</dd>
 							</div>
 							<div>

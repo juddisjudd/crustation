@@ -14,6 +14,14 @@ export const settings = {
 	restart: 'Restart the server for this to take effect.',
 	failed: 'Could not save',
 	loadFailed: 'Could not read server.properties.',
+	filter: 'Find a setting',
+	clearFilter: 'Clear',
+	noMatch: 'No setting matches "{query}".',
+	edited: 'Not saved yet',
+	nav: {
+		label: 'Sections',
+		other: 'Other'
+	},
 	other: {
 		title: 'Everything else in the file',
 		managed: 'The panel writes this one.',
@@ -60,7 +68,7 @@ export const settings = {
 		tooMany: 'The browser shows only four of these {count}.'
 	},
 	wipe: {
-		title: 'Wipe',
+		title: 'Wipe now',
 		description:
 			'Deletes save files so the next start begins fresh. Settings, bans and staff stay.',
 		map: 'Map',

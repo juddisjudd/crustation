@@ -87,6 +87,12 @@ export const server = {
 			pve: 'PvE',
 			pvp: 'PvP',
 			tags: 'Tags',
+			framework: 'Plugin framework',
+			frameworks: {
+				oxide: 'Oxide',
+				carbon: 'Carbon',
+				none: 'None'
+			},
 			connectTitle: 'Connect',
 			connectHint: 'In Rust, press F1 and enter this. The server has to be running.'
 		}
