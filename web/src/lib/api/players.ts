@@ -101,9 +101,31 @@ export const actOnPlayer = (serverId: string, action: PlayerAction) =>
 export const giveableItems = (serverId: string) =>
 	api.get<ItemCatalogue>(`/servers/${serverId}/items`);
 
-/** The panel's own copy, fetched from the gallery once and then kept. */
-export const itemIconUrl = (item: GiveableItem) =>
-	item.icon ? `${API_ROOT}/items/${encodeURIComponent(item.id)}/icon` : null;
+/** The panel's own copy, fetched once and then kept. Rust's live apart, since short names can match Minecraft ids. */
+export const itemIconUrl = (item: GiveableItem, kind: string) =>
+	!item.icon
+		? null
+		: kind === 'rust'
+			? `${API_ROOT}/items/rust/${encodeURIComponent(item.id)}/icon`
+			: `${API_ROOT}/items/${encodeURIComponent(item.id)}/icon`;
+
+/** Rust's item categories, in the order its crafting menu lists them. */
+export const RUST_ITEM_ORDER = [
+	'weapon',
+	'ammunition',
+	'construction',
+	'items',
+	'resources',
+	'component',
+	'tool',
+	'medical',
+	'food',
+	'attire',
+	'electrical',
+	'traps',
+	'fun',
+	'misc'
+] as const;
 
 /** A head render, from the community avatar service Minecraft panels use. */
 export const headUrl = (player: { uuid?: string | null; name: string }) =>

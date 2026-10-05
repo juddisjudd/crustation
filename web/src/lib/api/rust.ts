@@ -50,7 +50,8 @@ export type RustPlayerAction =
 	| { action: 'unmute'; steam_id: string }
 	| { action: 'say'; message: string }
 	| { action: 'teleport'; steam_id: string; to: string }
-	| { action: 'give'; steam_id: string; item: string; amount?: number };
+	| { action: 'give'; steam_id: string; item: string; amount?: number }
+	| { action: 'give-all'; item: string; amount?: number };
 
 export interface RustActed {
 	via: 'rcon' | 'file';
@@ -96,6 +97,57 @@ export const rustBuild = (serverId: string) =>
 /** `warn` is how many seconds players get, counted down in chat, before a running server stops. */
 export const updateRust = (serverId: string, warn: number) =>
 	api.post(`/servers/${serverId}/rust/build`, { warn });
+
+export type RustConvarType = 'bool' | 'int' | 'float' | 'string' | 'vector';
+
+export interface RustConvar {
+	name: string;
+	help: string;
+	/** Rust's help for this one was written by a tool rather than by hand. */
+	generated: boolean;
+	type: RustConvarType;
+	default: string | null;
+	/** What the running server holds; null while it is down. */
+	value: string | null;
+	/** What the start command sets; null when it says nothing. */
+	startup: string | null;
+	managed: boolean;
+}
+
+export interface RustConvars {
+	running: boolean;
+	/** The list and values came from the running server rather than Carbon's reference. */
+	live: boolean;
+	can_keep: boolean;
+	convars: RustConvar[];
+}
+
+export interface RustConvarSet {
+	live: string | null;
+	startup: string | null;
+	restart_required: boolean;
+}
+
+export interface RustCommand {
+	name: string;
+	help: string;
+	generated: boolean;
+}
+
+export const rustConvars = (serverId: string) =>
+	api.get<RustConvars>(`/servers/${serverId}/rust/convars`);
+
+/** `now` tells the running server; `startup` keeps it on the start command, or takes it off with null. */
+export const setRustConvar = (
+	serverId: string,
+	name: string,
+	body: { value: string | null; now?: boolean; startup?: boolean }
+) => api.put<RustConvarSet>(`/servers/${serverId}/rust/convars/${encodeURIComponent(name)}`, body);
+
+export const rustCommands = (serverId: string) =>
+	api.get<{ running: boolean; live: boolean; commands: RustCommand[] }>(
+		`/servers/${serverId}/rust/commands`
+	);
 
 export const isSteamId = (value: string) => /^7656\d{13}$/.test(value.trim());
 

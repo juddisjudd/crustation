@@ -45,6 +45,7 @@ pub fn routes() -> Router<AppState> {
         .merge(crate::api::pack_notes::routes())
         .merge(crate::api::players::routes())
         .merge(crate::api::rust_players::routes())
+        .merge(crate::api::rust_admin::routes())
         .merge(crate::api::rust_mods::routes())
         .merge(crate::api::rust_moderation::routes())
         .merge(crate::api::schedules::routes())

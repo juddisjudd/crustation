@@ -37,6 +37,17 @@ async fn items(
     identity
         .require_server(&state.db, id, ServerPerm::Commands)
         .await?;
+    let row = super::servers::load(&state, id).await?;
+    if row.kind == crate::rust_game::KIND {
+        let items = crate::rust_reference::items(&state.http)
+            .await
+            .map_err(ApiError::Unavailable)?;
+        return Ok(OkJson(json!({
+            "source": "catalogue",
+            "kind": row.kind,
+            "items": *items,
+        })));
+    }
     let row = super::servers::load_minecraft(&state, id).await?;
 
     // Somebody is about to look at a list of items, so this is the moment the

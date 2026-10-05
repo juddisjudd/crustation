@@ -19,6 +19,7 @@ export const serverTabs: ServerTab[] = [
 	{ slug: 'content', label: 'nav.tabs.content', permission: 'FILES', minecraftOnly: true },
 	{ slug: 'plugins', label: 'nav.tabs.plugins', permission: 'FILES', rustOnly: true },
 	{ slug: 'players', label: 'nav.tabs.players', permission: 'PLAYERS' },
+	{ slug: 'admin', label: 'nav.tabs.admin', permission: 'COMMANDS', rustOnly: true },
 	{ slug: 'chat', label: 'nav.tabs.chat', permission: 'CONSOLE' },
 	{ slug: 'schedules', label: 'nav.tabs.schedules', permission: 'SCHEDULES' },
 	{ slug: 'settings', label: 'nav.tabs.settings', permission: 'CONFIG' }

@@ -57,6 +57,8 @@ Rust:
 - **Updates**: the panel notices when Steam has a newer build, then warns players in chat, stops,
   updates and starts again, on one button or whenever Facepunch ships.
 - **Server health** from the game itself: frame rate, entities, queue and network.
+- **Admin**: every convar with its live value, set for now or kept for every start; every console
+  command with a box to run it; and every item with its picture, given to a player or to everyone.
 - **F7 reports** collected on the players page with their screenshots, and a **ban list shared** by
   every Rust server on the panel.
 - Commands go over websocket RCON on the loopback, so the panel's own requests never clutter the

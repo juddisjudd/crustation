@@ -10,6 +10,7 @@ import { mcp } from './mcp.ts';
 import { nav } from './nav.ts';
 import { panel } from './panel.ts';
 import { players } from './players.ts';
+import { rustAdmin } from './rust-admin.ts';
 import { plugins } from './plugins.ts';
 import { schedules } from './schedules.ts';
 import { server } from './server.ts';
@@ -29,6 +30,7 @@ export const en = {
 	panel,
 	players,
 	plugins,
+	rustAdmin,
 	schedules,
 	server,
 	settings

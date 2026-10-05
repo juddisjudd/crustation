@@ -156,14 +156,19 @@ enum Wanted {
         item: String,
         amount: Option<u32>,
     },
+    GiveAll {
+        item: String,
+        amount: Option<u32>,
+    },
 }
 
 impl Wanted {
     fn permission(&self) -> ServerPerm {
         match self {
-            Wanted::Say { .. } | Wanted::Teleport { .. } | Wanted::Give { .. } => {
-                ServerPerm::Commands
-            }
+            Wanted::Say { .. }
+            | Wanted::Teleport { .. }
+            | Wanted::Give { .. }
+            | Wanted::GiveAll { .. } => ServerPerm::Commands,
             _ => ServerPerm::Players,
         }
     }
@@ -196,6 +201,17 @@ fn text(field: &'static str, value: Option<&str>, max: usize) -> Result<String, 
         ));
     }
     Ok(value.to_string())
+}
+
+fn short_name(value: &str) -> Result<&str, ApiError> {
+    let value = value.trim();
+    if !crate::rust_reference::is_short_name(value) {
+        return Err(ApiError::field(
+            "item",
+            "Use the item's short name, like wood.",
+        ));
+    }
+    Ok(value)
 }
 
 fn duration(value: Option<&str>) -> Result<Option<String>, ApiError> {
@@ -358,22 +374,17 @@ async fn act(
             amount,
         } => {
             let who = steam_id("steam_id", who)?;
-            let item = item.trim();
-            let valid = !item.is_empty()
-                && item
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-            if !valid {
-                return Err(ApiError::field(
-                    "item",
-                    "Use the item's short name, like wood.",
-                ));
-            }
+            let item = short_name(item)?;
             let amount = amount.unwrap_or(1).clamp(1, 1_000_000);
             (
-                vec![format!("inventory.giveto {who} {item} {amount}")],
+                vec![format!("inventory.giveto {who} \"{item}\" {amount}")],
                 None,
             )
+        }
+        Wanted::GiveAll { item, amount } => {
+            let item = short_name(item)?;
+            let amount = amount.unwrap_or(1).clamp(1, 1_000_000);
+            (vec![format!("inventory.giveall \"{item}\" {amount}")], None)
         }
     };
 

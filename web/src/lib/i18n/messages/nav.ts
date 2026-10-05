@@ -30,6 +30,7 @@ export const nav = {
 		players: 'Players',
 		content: 'Add-ons',
 		plugins: 'Plugins',
-		schedules: 'Schedules'
+		schedules: 'Schedules',
+		admin: 'Admin'
 	}
 } as const;

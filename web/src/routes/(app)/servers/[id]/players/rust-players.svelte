@@ -37,6 +37,7 @@
 		type RustRole
 	} from '$lib/api/rust';
 	import { dateTime } from '$lib/format';
+	import ItemPicker from '$lib/components/item-picker.svelte';
 	import RustReports from './rust-reports.svelte';
 	import RustSharedBans from './rust-shared-bans.svelte';
 	import { t, type MessageKey } from '$lib/i18n/index.svelte';
@@ -632,17 +633,9 @@
 			<Dialog.Header>
 				<Dialog.Title>{t('players.act.giveTitle', { name })}</Dialog.Title>
 			</Dialog.Header>
-			<div class="flex gap-3">
-				<div class="grid flex-1 gap-2">
-					<Label for="item">{t('players.rust.item')}</Label>
-					<Input
-						id="item"
-						bind:value={item}
-						placeholder={t('players.rust.itemPlaceholder')}
-						class="font-mono"
-					/>
-				</div>
-				<div class="grid w-24 gap-2">
+			<div class="grid gap-4">
+				<ItemPicker serverId={server.id} bind:value={item} />
+				<div class="grid w-28 gap-2">
 					<Label for="amount">{t('players.act.count')}</Label>
 					<Input id="amount" type="number" min="1" bind:value={amount} />
 				</div>

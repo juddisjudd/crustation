@@ -10,6 +10,7 @@ pub mod players;
 pub mod properties;
 pub mod providers;
 pub mod roles;
+pub mod rust_admin;
 pub mod rust_hooks;
 pub mod rust_moderation;
 pub mod rust_mods;

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Command from '$lib/components/ui/command/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
-	import { giveableItems, itemIconUrl, type GiveableItem } from '$lib/api/players';
+	import { giveableItems, itemIconUrl, RUST_ITEM_ORDER, type GiveableItem } from '$lib/api/players';
 	import { errorMessage } from '$lib/api/servers';
 	import { t } from '$lib/i18n/index.svelte';
 
@@ -54,10 +54,12 @@
 		return () => (current = false);
 	});
 
+	const rust = $derived(kind === 'rust');
+
 	/** Only the tabs this server actually has something in. */
 	const tabs = $derived.by(() => {
 		const present = new Set(all.map((one) => one.category));
-		return ORDER.filter((one) => present.has(one));
+		return (rust ? RUST_ITEM_ORDER : ORDER).filter((one) => present.has(one));
 	});
 
 	/** Whatever was typed is worth offering even when it matches nothing: a pack
@@ -142,7 +144,7 @@
 					<Command.Empty>{t('players.act.itemNone')}</Command.Empty>
 				{/if}
 				{#each shown as one (one.id)}
-					{@const picture = itemIconUrl(one)}
+					{@const picture = itemIconUrl(one, kind)}
 					<Command.Item value={one.id} onSelect={() => (value = one.id)}>
 						{#if picture}
 							<img
@@ -151,7 +153,7 @@
 								loading="lazy"
 								decoding="async"
 								onerror={hide}
-								class="size-5 shrink-0 [image-rendering:pixelated]"
+								class={['size-5 shrink-0 object-contain', !rust && '[image-rendering:pixelated]']}
 							/>
 						{:else}
 							<span class="size-5 shrink-0"></span>
@@ -177,6 +179,8 @@
 			{t('players.act.itemTypeInstead')}
 		{:else if matches.length > shown.length}
 			{t('players.act.itemSome', { shown: shown.length, total: matches.length })}
+		{:else if rust}
+			{t('players.act.itemFromRust', { total: all.length })}
 		{:else if source === 'server'}
 			{t('players.act.itemFromServer', { total: all.length })}
 		{:else if kind === 'minecraft_bedrock'}

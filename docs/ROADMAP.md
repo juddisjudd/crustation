@@ -159,6 +159,11 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   exclusive group (wipe schedule, difficulty, region); the panel refuses a mix that breaks the
   rule. Rust+ shows on the health card as off, listening, or failed with what Rust said about
   why, since a failed connectivity test otherwise only scrolls past in the console.
+- An Admin tab on Rust with three lists from Carbon's reference, or from the running server's own
+  `find .` when it answers: convars with their live values, which can be set for now, saved to the
+  start command, or taken off it; console commands, searchable, with a short list of the common
+  ones and a box to run any of them; and items with their pictures, given to one player or to
+  everyone online. The give dialog on the players page picks from the same items.
 
 ## Next
 

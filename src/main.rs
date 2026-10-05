@@ -21,6 +21,7 @@ mod rust_game;
 mod rust_moderation;
 mod rust_mods;
 mod rust_players;
+mod rust_reference;
 mod rust_updates;
 mod rust_wipe;
 mod scheduler;

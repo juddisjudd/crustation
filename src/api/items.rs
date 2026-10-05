@@ -21,6 +21,8 @@ const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
 /// An item picture is a few hundred bytes. Anything approaching this is not
 /// one, and is refused rather than cached.
 const MOST: usize = 512 * 1024;
+/// Carbon's Rust pictures are 512 pixels a side, around a hundred kilobytes.
+const MOST_RUST: usize = 2 * 1024 * 1024;
 
 /// Whether a warm is already under way. One panel, one process, one run.
 static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -28,7 +30,9 @@ static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// Mounted at `/items`, beside the per-server list rather than inside it: a
 /// picture of a diamond is the same picture whichever server asked.
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/{id}/icon", get(icon))
+    Router::new()
+        .route("/{id}/icon", get(icon))
+        .route("/rust/{name}/icon", get(rust_icon))
 }
 
 /// Fills the cache from the gallery's archives, once, in the background.
@@ -121,11 +125,48 @@ async fn icon(
         .join("icons")
         .join(version)
         .join(format!("{}.png", item.id));
-    if let Ok(bytes) = tokio::fs::read(&kept).await {
+    kept_or_fetched(&state, &url, &kept, MOST).await
+}
+
+async fn rust_icon(
+    _identity: Identity,
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> ApiResult<Response> {
+    // Looked up rather than trusted, as above: only a short name from the list reaches disk or url.
+    let items = crate::rust_reference::items(&state.http)
+        .await
+        .map_err(ApiError::Unavailable)?;
+    let item = items
+        .iter()
+        .find(|one| one.id == name)
+        .ok_or_else(|| ApiError::not_found("Item"))?;
+    let url = format!(
+        "{}/{}.png",
+        crate::rust_reference::ICONS_URL,
+        item.id.replace(' ', "%20")
+    );
+    let kept = state
+        .config
+        .paths
+        .config
+        .join("icons")
+        .join("rust")
+        .join(format!("{}.png", item.id));
+    kept_or_fetched(&state, &url, &kept, MOST_RUST).await
+}
+
+async fn kept_or_fetched(
+    state: &AppState,
+    url: &str,
+    kept: &std::path::Path,
+    most: usize,
+) -> ApiResult<Response> {
+    if let Ok(bytes) = tokio::fs::read(kept).await {
         return Ok(sent(bytes));
     }
 
-    let reply = state.http.get(&url).send().await.map_err(|error| {
+    let reply = state.http.get(url).send().await.map_err(|error| {
         ApiError::Unavailable(format!("the item gallery is not answering: {error}"))
     })?;
     if !reply.status().is_success() {
@@ -134,7 +175,7 @@ async fn icon(
     let bytes = reply.bytes().await.map_err(|error| {
         ApiError::Unavailable(format!("the item gallery cut the answer short: {error}"))
     })?;
-    if bytes.len() > MOST || !bytes.starts_with(PNG) {
+    if bytes.len() > most || !bytes.starts_with(PNG) {
         return Err(ApiError::Unavailable(
             "the item gallery answered with something that is not a picture".to_string(),
         ));
@@ -145,8 +186,8 @@ async fn icon(
     if let Some(parent) = kept.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    if let Err(error) = tokio::fs::write(&kept, &bytes).await {
-        tracing::debug!(%error, item = %item.id, "could not keep an item picture");
+    if let Err(error) = tokio::fs::write(kept, &bytes).await {
+        tracing::debug!(%error, path = %kept.display(), "could not keep an item picture");
     }
     Ok(sent(bytes.to_vec()))
 }

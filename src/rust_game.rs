@@ -105,6 +105,10 @@ pub fn is_managed(key: &str) -> bool {
     MANAGED.contains(&key)
 }
 
+pub fn is_secret(key: &str) -> bool {
+    SECRETS.contains(&key)
+}
+
 enum Part {
     /// The program, its environment and its `-flags`.
     Bare(String),
