@@ -14,7 +14,6 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SendIcon from '@lucide/svelte/icons/send';
 	import ShieldIcon from '@lucide/svelte/icons/shield';
-	import ShieldOffIcon from '@lucide/svelte/icons/shield-off';
 	import SkullIcon from '@lucide/svelte/icons/skull';
 	import UndoIcon from '@lucide/svelte/icons/undo-2';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -43,8 +42,10 @@
 	} from '$lib/api/rust';
 	import { dateTime } from '$lib/format';
 	import ItemPicker from '$lib/components/item-picker.svelte';
+	import RustPlayerSheet from './rust-player-sheet.svelte';
 	import RustReports from './rust-reports.svelte';
 	import RustSharedBans from './rust-shared-bans.svelte';
+	import type { Person, Verb } from './rust-person';
 	import { t, type MessageKey } from '$lib/i18n/index.svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -83,15 +84,8 @@
 	let amount = $state(1);
 	let target = $state('');
 
-	interface Person {
-		steamId: string | null;
-		name: string;
-		on: boolean;
-		ping?: number;
-		last?: string;
-		role?: RustRole;
-		banned: boolean;
-	}
+	let viewing = $state<string | null>(null);
+	let viewOpen = $state(false);
 
 	/** One row per person: on now, seen before, or only named on a list. */
 	const people = $derived.by(() => {
@@ -103,6 +97,7 @@
 				steamId: seen.steam_id,
 				name: seen.name,
 				on: false,
+				first: seen.first_seen,
 				last: seen.last_seen,
 				banned: false
 			});
@@ -111,7 +106,8 @@
 			const found = rows.get(ban.steam_id);
 			rows.set(ban.steam_id, {
 				...(found ?? { steamId: ban.steam_id, name: ban.name || ban.steam_id, on: false }),
-				banned: true
+				banned: true,
+				ban
 			});
 		}
 		for (const member of overview.staff) {
@@ -132,7 +128,10 @@
 				...(found ?? { steamId: here.steam_id, banned: false }),
 				name: here.name,
 				on: true,
-				ping: here.ping
+				ping: here.ping,
+				health: here.health,
+				address: here.address,
+				connectedSeconds: here.connected_seconds
 			});
 		}
 		return [...rows.values()].sort((a, b) => {
@@ -143,6 +142,7 @@
 	});
 
 	const onNow = $derived(people.filter((one) => one.on && one.steamId));
+	const viewed = $derived(people.find((one) => one.steamId === viewing) ?? null);
 
 	async function load() {
 		loadFailed = false;
@@ -185,6 +185,29 @@
 			destructive: true
 		});
 		if (agreed) await run({ action, steam_id: person.steamId });
+	}
+
+	async function setRole(person: Person, next: string) {
+		if (!person.steamId) return;
+		const role = next === 'owner' || next === 'moderator' ? next : null;
+		await run({ action: 'staff', steam_id: person.steamId, name: person.name, role });
+	}
+
+	function act(verb: Verb, person: Person) {
+		if (!person.steamId) return;
+		switch (verb) {
+			case 'kick':
+			case 'ban':
+			case 'mute':
+			case 'give':
+			case 'teleport':
+				return open(verb, person);
+			case 'kill':
+			case 'clear-inventory':
+				return sure(verb, person);
+			default:
+				return run({ action: verb, steam_id: person.steamId });
+		}
 	}
 
 	function open(kind: Asking, person: Person) {
@@ -279,7 +302,20 @@
 								<Table.Row>
 									<Table.Cell class="py-2">
 										<div class="flex flex-wrap items-center gap-2">
-											<span class="font-medium">{person.name}</span>
+											{#if person.steamId}
+												<button
+													type="button"
+													class="cursor-pointer font-medium underline-offset-4 hover:underline"
+													onclick={() => {
+														viewing = person.steamId;
+														viewOpen = true;
+													}}
+												>
+													{person.name}
+												</button>
+											{:else}
+												<span class="font-medium">{person.name}</span>
+											{/if}
 											{#if person.role}
 												<Badge variant="secondary" class="gap-1">
 													<ShieldIcon class="size-3" />
@@ -502,6 +538,7 @@
 
 {#snippet actions(person: Person, running: boolean)}
 	{@const steamId = person.steamId ?? ''}
+	{@const here = running && person.on}
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger>
 			{#snippet child({ props })}
@@ -515,11 +552,13 @@
 				</Button>
 			{/snippet}
 		</DropdownMenu.Trigger>
-		<DropdownMenu.Content align="end">
-			<DropdownMenu.Item disabled={!running || !person.on} onSelect={() => open('kick', person)}>
-				<BootIcon />
-				{t('players.act.kick')}
-			</DropdownMenu.Item>
+		<DropdownMenu.Content align="end" class="w-52">
+			{#if here}
+				<DropdownMenu.Item onSelect={() => open('kick', person)}>
+					<BootIcon />
+					{t('players.act.kick')}
+				</DropdownMenu.Item>
+			{/if}
 			{#if person.banned}
 				<DropdownMenu.Item onSelect={() => run({ action: 'unban', steam_id: steamId })}>
 					<UndoIcon />
@@ -531,83 +570,59 @@
 					{t('players.act.ban')}
 				</DropdownMenu.Item>
 			{/if}
-			<DropdownMenu.Item disabled={!running || !person.on} onSelect={() => open('mute', person)}>
-				<MicOffIcon />
-				{t('players.rust.mute')}
-			</DropdownMenu.Item>
-			<DropdownMenu.Item
-				disabled={!running || !person.on}
-				onSelect={() => run({ action: 'unmute', steam_id: steamId })}
-			>
-				<MicIcon />
-				{t('players.rust.unmute')}
-			</DropdownMenu.Item>
+			{#if here}
+				<DropdownMenu.Item onSelect={() => open('mute', person)}>
+					<MicOffIcon />
+					{t('players.rust.mute')}
+				</DropdownMenu.Item>
+				<DropdownMenu.Item onSelect={() => run({ action: 'unmute', steam_id: steamId })}>
+					<MicIcon />
+					{t('players.rust.unmute')}
+				</DropdownMenu.Item>
+			{/if}
 			<DropdownMenu.Separator />
-			{#if person.role !== 'owner'}
-				<DropdownMenu.Item
-					onSelect={() =>
-						run({ action: 'staff', steam_id: steamId, name: person.name, role: 'owner' })}
-				>
+			<DropdownMenu.Sub>
+				<DropdownMenu.SubTrigger>
 					<ShieldIcon />
-					{t('players.rust.makeOwner')}
-				</DropdownMenu.Item>
-			{/if}
-			{#if person.role !== 'moderator'}
-				<DropdownMenu.Item
-					onSelect={() =>
-						run({ action: 'staff', steam_id: steamId, name: person.name, role: 'moderator' })}
-				>
-					<ShieldIcon />
-					{t('players.rust.makeModerator')}
-				</DropdownMenu.Item>
-			{/if}
-			{#if person.role}
-				<DropdownMenu.Item onSelect={() => run({ action: 'staff', steam_id: steamId, role: null })}>
-					<ShieldOffIcon />
-					{t('players.rust.removeStaff')}
-				</DropdownMenu.Item>
-			{/if}
-			{#if canCommand}
+					{t('players.rust.staffRole')}
+				</DropdownMenu.SubTrigger>
+				<DropdownMenu.SubContent>
+					<DropdownMenu.RadioGroup
+						value={person.role ?? 'none'}
+						onValueChange={(next) => setRole(person, next)}
+					>
+						<DropdownMenu.RadioItem value="none">{t('players.rust.noRole')}</DropdownMenu.RadioItem>
+						<DropdownMenu.RadioItem value="moderator">
+							{t('players.rust.moderator')}
+						</DropdownMenu.RadioItem>
+						<DropdownMenu.RadioItem value="owner">{t('players.rust.owner')}</DropdownMenu.RadioItem>
+					</DropdownMenu.RadioGroup>
+				</DropdownMenu.SubContent>
+			</DropdownMenu.Sub>
+			{#if canCommand && here}
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item disabled={!running || !person.on} onSelect={() => open('give', person)}>
+				<DropdownMenu.Item onSelect={() => open('give', person)}>
 					<GiftIcon />
 					{t('players.act.give')}
 				</DropdownMenu.Item>
-				<DropdownMenu.Item
-					disabled={!running || !person.on || onNow.length < 2}
-					onSelect={() => open('teleport', person)}
-				>
+				<DropdownMenu.Item disabled={onNow.length < 2} onSelect={() => open('teleport', person)}>
 					<MapPinIcon />
 					{t('players.act.teleport')}
 				</DropdownMenu.Item>
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item
-					disabled={!running || !person.on}
-					onSelect={() => run({ action: 'heal', steam_id: steamId })}
-				>
+				<DropdownMenu.Item onSelect={() => run({ action: 'heal', steam_id: steamId })}>
 					<HeartPulseIcon />
 					{t('players.rust.heal')}
 				</DropdownMenu.Item>
-				<DropdownMenu.Item
-					disabled={!running || !person.on}
-					onSelect={() => run({ action: 'revive', steam_id: steamId })}
-				>
+				<DropdownMenu.Item onSelect={() => run({ action: 'revive', steam_id: steamId })}>
 					<HandHeartIcon />
 					{t('players.rust.revive')}
 				</DropdownMenu.Item>
-				<DropdownMenu.Item
-					variant="destructive"
-					disabled={!running || !person.on}
-					onSelect={() => sure('kill', person)}
-				>
+				<DropdownMenu.Item variant="destructive" onSelect={() => sure('kill', person)}>
 					<SkullIcon />
 					{t('players.rust.kill')}
 				</DropdownMenu.Item>
-				<DropdownMenu.Item
-					variant="destructive"
-					disabled={!running || !person.on}
-					onSelect={() => sure('clear-inventory', person)}
-				>
+				<DropdownMenu.Item variant="destructive" onSelect={() => sure('clear-inventory', person)}>
 					<PackageXIcon />
 					{t('players.rust.clearInventory')}
 				</DropdownMenu.Item>
@@ -624,6 +639,17 @@
 		</DropdownMenu.Content>
 	</DropdownMenu.Root>
 {/snippet}
+
+<RustPlayerSheet
+	person={viewed}
+	bind:open={viewOpen}
+	running={overview?.running ?? false}
+	{canCommand}
+	canTeleport={onNow.length > 1}
+	{busy}
+	{act}
+	{setRole}
+/>
 
 <Dialog.Root open={asking !== null} onOpenChange={(next) => !next && (asking = null)}>
 	<Dialog.Content class="sm:max-w-md">

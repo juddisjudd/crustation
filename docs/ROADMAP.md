@@ -173,6 +173,9 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   `find .` during a start, which threw an exception into the console before Steam was ready.
 - More to do about a Rust player with no framework installed: heal, heal everyone, revive, kill
   and clear the inventory, each a vanilla console command sent over RCON. Kill and clear ask first.
+- A panel for each Rust player, opened from their name: status, time connected, health and
+  address, with everything there is to do about them in groups. The row menu stays for the quick
+  ones, no longer wraps, and leaves out what cannot be done to somebody who is not on the server.
 
 ## Next
 
