@@ -618,7 +618,11 @@ async fn run_steamcmd(
     while let Some(line) = running.lines.recv().await {
         let step = steam::step_in(&line);
         if !line.starts_with("Update state") {
-            log(state, job.id, line).await;
+            let chatter = steam::is_chatter(&line);
+            state
+                .supervisor
+                .push_judged(job.id, "steamcmd", line, chatter)
+                .await;
         }
         let Some(step) = step else { continue };
         if step.phase != shown || last.elapsed() >= Duration::from_millis(400) {

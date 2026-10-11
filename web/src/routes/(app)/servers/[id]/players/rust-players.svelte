@@ -4,14 +4,18 @@
 	import BootIcon from '@lucide/svelte/icons/door-open';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import GiftIcon from '@lucide/svelte/icons/gift';
+	import HandHeartIcon from '@lucide/svelte/icons/hand-heart';
+	import HeartPulseIcon from '@lucide/svelte/icons/heart-pulse';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import MicOffIcon from '@lucide/svelte/icons/mic-off';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import MoreIcon from '@lucide/svelte/icons/ellipsis';
+	import PackageXIcon from '@lucide/svelte/icons/package-x';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SendIcon from '@lucide/svelte/icons/send';
 	import ShieldIcon from '@lucide/svelte/icons/shield';
 	import ShieldOffIcon from '@lucide/svelte/icons/shield-off';
+	import SkullIcon from '@lucide/svelte/icons/skull';
 	import UndoIcon from '@lucide/svelte/icons/undo-2';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { toast } from 'svelte-sonner';
@@ -26,6 +30,7 @@
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import * as Tabs from '$lib/components/ui/tabs/index.js';
+	import { confirm } from '$lib/components/confirm/confirm.svelte';
 	import { errorMessage } from '$lib/api/servers';
 	import {
 		actOnRustPlayer,
@@ -170,6 +175,18 @@
 		}
 	}
 
+	async function sure(action: 'kill' | 'clear-inventory', person: Person) {
+		if (!person.steamId) return;
+		const kill = action === 'kill';
+		const agreed = await confirm({
+			title: t(kill ? 'players.rust.killTitle' : 'players.rust.clearTitle', { name: person.name }),
+			description: t(kill ? 'players.rust.killBody' : 'players.rust.clearBody'),
+			confirmLabel: t(kill ? 'players.rust.kill' : 'players.rust.clearInventory'),
+			destructive: true
+		});
+		if (agreed) await run({ action, steam_id: person.steamId });
+	}
+
 	function open(kind: Asking, person: Person) {
 		subject = person;
 		reason = '';
@@ -231,10 +248,23 @@
 		{@const state = overview}
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] xl:items-start">
 			<section class="rounded-lg border bg-card">
-				<div class="flex flex-wrap items-baseline justify-between gap-2 border-b px-5 py-4">
+				<div class="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
 					<h2 class="text-base font-semibold tracking-tight">{t('players.people')}</h2>
 					{#if state.running}
-						<span class="text-sm text-muted-foreground tabular-nums">{state.online.length}</span>
+						<div class="flex items-center gap-3">
+							{#if canCommand}
+								<Button
+									variant="outline"
+									size="xs"
+									disabled={busy || state.online.length === 0}
+									onclick={() => run({ action: 'heal-all' })}
+								>
+									<HeartPulseIcon />
+									{t('players.rust.healAll')}
+								</Button>
+							{/if}
+							<span class="text-sm text-muted-foreground tabular-nums">{state.online.length}</span>
+						</div>
 					{/if}
 				</div>
 
@@ -549,6 +579,37 @@
 				>
 					<MapPinIcon />
 					{t('players.act.teleport')}
+				</DropdownMenu.Item>
+				<DropdownMenu.Separator />
+				<DropdownMenu.Item
+					disabled={!running || !person.on}
+					onSelect={() => run({ action: 'heal', steam_id: steamId })}
+				>
+					<HeartPulseIcon />
+					{t('players.rust.heal')}
+				</DropdownMenu.Item>
+				<DropdownMenu.Item
+					disabled={!running || !person.on}
+					onSelect={() => run({ action: 'revive', steam_id: steamId })}
+				>
+					<HandHeartIcon />
+					{t('players.rust.revive')}
+				</DropdownMenu.Item>
+				<DropdownMenu.Item
+					variant="destructive"
+					disabled={!running || !person.on}
+					onSelect={() => sure('kill', person)}
+				>
+					<SkullIcon />
+					{t('players.rust.kill')}
+				</DropdownMenu.Item>
+				<DropdownMenu.Item
+					variant="destructive"
+					disabled={!running || !person.on}
+					onSelect={() => sure('clear-inventory', person)}
+				>
+					<PackageXIcon />
+					{t('players.rust.clearInventory')}
 				</DropdownMenu.Item>
 			{/if}
 			<DropdownMenu.Separator />

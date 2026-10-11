@@ -51,6 +51,8 @@ pub struct ConsoleLine {
     pub at: DateTime<Utc>,
     pub stream: &'static str,
     pub text: String,
+    /// Chatter the game prints on every start, which the interface hides until asked.
+    pub noise: bool,
 }
 
 /// What the supervisor knows about one server while the process is up.
@@ -100,12 +102,19 @@ impl Instance {
     }
 
     /// Appends to the ring buffer and hands back the line to publish.
-    fn push(&mut self, stream: &'static str, text: String, backlog: usize) -> ConsoleLine {
+    fn push(
+        &mut self,
+        stream: &'static str,
+        text: String,
+        noise: bool,
+        backlog: usize,
+    ) -> ConsoleLine {
         let line = ConsoleLine {
             seq: self.next_seq,
             at: Utc::now(),
             stream,
             text,
+            noise,
         };
         self.next_seq += 1;
         self.console.push(line.clone());
@@ -138,6 +147,7 @@ pub struct Supervisor {
 /// Everything needed to start one server, read from its database row.
 pub struct Launch {
     pub id: Uuid,
+    pub kind: String,
     pub directory: PathBuf,
     pub command: String,
     pub stop_command: String,
@@ -280,11 +290,13 @@ impl Supervisor {
         self.events
             .server_state(launch.id, State::Starting.as_str(), flags);
 
+        let rust = launch.kind == crate::rust_game::KIND;
         self.pump(
             launch.id,
             instance.clone(),
             stdout,
             "stdout",
+            rust,
             launch.console_backlog,
         );
         self.pump(
@@ -292,6 +304,7 @@ impl Supervisor {
             instance.clone(),
             stderr,
             "stderr",
+            rust,
             launch.console_backlog,
         );
         self.watch_exit(launch, instance);
@@ -304,6 +317,7 @@ impl Supervisor {
         instance: Arc<Mutex<Instance>>,
         reader: R,
         stream: &'static str,
+        rust: bool,
         backlog: usize,
     ) where
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -312,6 +326,7 @@ impl Supervisor {
         let db = self.db.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(reader).lines();
+            let mut chatter = rust.then(crate::rust_console::Noise::default);
             while let Ok(Some(text)) = lines.next_line().await {
                 let text = strip_escapes(&text).into_owned();
                 // The only place a Bedrock server ever says an Xbox id out loud.
@@ -319,10 +334,13 @@ impl Supervisor {
                     remember_xuid(&db, id, &name, &xuid).await;
                 } else if let Some(name) = left_in(&text) {
                     mark_left(&db, id, &name).await;
+                } else if rust && let Some(url) = crate::rust_console::map_image(&text) {
+                    remember_map_image(&db, id, url).await;
                 }
+                let noise = chatter.as_mut().is_some_and(|chatter| chatter.hears(&text));
                 let mut guard = instance.lock().await;
                 guard.rust_plus_failure = rust_plus_after(guard.rust_plus_failure.take(), &text);
-                let line = guard.push(stream, text, backlog);
+                let line = guard.push(stream, text, noise, backlog);
                 // A server that prints "Done" is up; good enough across the games we run.
                 if guard.state == State::Starting && looks_ready(&line.text) {
                     guard.state = State::Running;
@@ -395,8 +413,9 @@ impl Supervisor {
     }
 
     pub async fn launch_for(&self, id: Uuid) -> Result<Launch> {
-        let row: (String, String, String, i64, bool, String) = sqlx::query_as(
-            "SELECT directory, command, stop_command, shutdown_timeout, crash_detection, ignored_exits
+        let row: (String, String, String, String, i64, bool, String) = sqlx::query_as(
+            "SELECT kind, directory, command, stop_command, shutdown_timeout, crash_detection,
+                    ignored_exits
              FROM servers WHERE id = ?",
         )
         .bind(id.to_string())
@@ -405,13 +424,14 @@ impl Supervisor {
 
         Ok(Launch {
             id,
-            directory: PathBuf::from(row.0),
-            command: row.1,
-            stop_command: row.2,
-            shutdown_timeout: row.3.max(0) as u64,
-            crash_detection: row.4,
+            kind: row.0,
+            directory: PathBuf::from(row.1),
+            command: row.2,
+            stop_command: row.3,
+            shutdown_timeout: row.4.max(0) as u64,
+            crash_detection: row.5,
             ignored_exits: row
-                .5
+                .6
                 .split(',')
                 .filter_map(|code| code.trim().parse().ok())
                 .collect(),
@@ -437,10 +457,15 @@ impl Supervisor {
 
     /// Adds a line the panel produced, so everyone watching the console sees it.
     pub async fn push_console(&self, id: Uuid, stream: &'static str, text: String) {
+        self.push_judged(id, stream, text, false).await;
+    }
+
+    /// The same, for a line whose sender knows whether it is chatter.
+    pub async fn push_judged(&self, id: Uuid, stream: &'static str, text: String, noise: bool) {
         let instance = self.instance(id).await;
         let line = {
             let mut guard = instance.lock().await;
-            guard.push(stream, text, self.config.panel.console_backlog)
+            guard.push(stream, text, noise, self.config.panel.console_backlog)
         };
         self.events
             .console_line(id, serde_json::to_value(&line).unwrap_or_default());
@@ -703,6 +728,18 @@ async fn mark_left(db: &crate::db::Db, id: Uuid, name: &str) {
     }
 }
 
+/// Kept on the row, in case a start from a save does not link the picture again.
+async fn remember_map_image(db: &crate::db::Db, id: Uuid, url: &str) {
+    let result = sqlx::query("UPDATE servers SET map_image = ? WHERE id = ?")
+        .bind(url)
+        .bind(id.to_string())
+        .execute(db)
+        .await;
+    if let Err(error) = result {
+        tracing::debug!(%error, "could not write down the map's picture");
+    }
+}
+
 /// Nobody is on a server that is not running.
 async fn forget_who_was_on(db: &crate::db::Db, id: Uuid) {
     let result = sqlx::query("UPDATE server_players SET online = 0 WHERE server_id = ?")
@@ -838,10 +875,10 @@ mod tests {
     fn clearing_the_backlog_does_not_rewind_the_sequence() {
         let mut instance = Instance::new();
         for _ in 0..3 {
-            instance.push("stdout", "hello".to_string(), 500);
+            instance.push("stdout", "hello".to_string(), false, 500);
         }
         instance.console.clear();
-        let next = instance.push("stdout", "after".to_string(), 500);
+        let next = instance.push("stdout", "after".to_string(), false, 500);
         assert_eq!(instance.console.len(), 1);
         assert_eq!(next.seq, 4);
     }
@@ -850,7 +887,7 @@ mod tests {
     fn the_backlog_never_grows_past_its_bound() {
         let mut instance = Instance::new();
         for _ in 0..10 {
-            instance.push("stdout", "hello".to_string(), 4);
+            instance.push("stdout", "hello".to_string(), false, 4);
         }
         assert_eq!(instance.console.len(), 4);
         assert_eq!(instance.console[0].seq, 7);

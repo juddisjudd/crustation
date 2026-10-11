@@ -22,6 +22,11 @@ export const server = {
 		rustPlusFix:
 			'Publish TCP {port} and forward it on your router, or set the Rust+ public address in Settings.'
 	},
+	map: {
+		title: 'Map',
+		alt: 'The map this server is running',
+		open: 'Open the full picture'
+	},
 	updates: {
 		title: 'Updates',
 		installed: 'Installed build',
@@ -134,7 +139,13 @@ export const server = {
 			error: 'Error',
 			warn: 'Warning',
 			info: 'Info',
-			other: 'Other'
+			other: 'Other',
+			noise: 'Noise',
+			steamcmd: 'SteamCMD'
+		},
+		quiet: {
+			noise: 'What the game prints on every start and nobody needs to read.',
+			steamcmd: 'What SteamCMD prints while it works. Its result and its errors always show.'
 		},
 		output: 'Server console output',
 		waiting: 'Waiting for output…',

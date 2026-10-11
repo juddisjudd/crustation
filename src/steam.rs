@@ -197,6 +197,15 @@ fn plain(bytes: &[u8]) -> String {
         .to_string()
 }
 
+/// SteamCMD writes its verdict as `Success!` and its failures in capitals; the rest is chatter.
+pub fn is_chatter(line: &str) -> bool {
+    let matters = line.starts_with("Success!")
+        || ["ERROR", "Error!", "FAIL", "Timed out"]
+            .iter()
+            .any(|mark| line.contains(mark));
+    !matters
+}
+
 /// What SteamCMD is doing, read off one line of its output.
 #[derive(Debug, PartialEq)]
 pub struct Step {
@@ -457,6 +466,27 @@ mod tests {
     fn notices_the_sign_in() {
         let step = step_in("Logging in user 'anonymous' to Steam Public...OK");
         assert_eq!(step.map(|step| step.phase), Some("signing_in"));
+    }
+
+    #[test]
+    fn only_the_verdict_and_failures_are_worth_reading() {
+        for line in [
+            "Redirecting stderr to '/config/steamcmd/home/Steam/logs/stderr.txt'",
+            "ILocalize::AddFile() failed to load file \"public/steambootstrapper_english.txt\".",
+            "WARNING: setlocale('en_US.UTF-8') failed, using locale: 'C'.",
+            "[ 46%] Downloading update (18701 of 40430 KB)...",
+            "Connecting anonymously to Steam Public...OK",
+        ] {
+            assert!(is_chatter(line), "{line}");
+        }
+        for line in [
+            "Success! App '258550' fully installed.",
+            "ERROR! Failed to install app '258550' (Disk write failure)",
+            "Error! App '258550' state is 0x202 after update job.",
+            "Connecting anonymously to Steam Public...FAILED (No Connection)",
+        ] {
+            assert!(!is_chatter(line), "{line}");
+        }
     }
 
     #[test]

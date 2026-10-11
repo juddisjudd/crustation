@@ -164,6 +164,15 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   start command, or taken off it; console commands, searchable, with a short list of the common
   ones and a box to run any of them; and items with their pictures, given to one player or to
   everyone online. The give dialog on the players page picks from the same items.
+- A quieter Rust console and the map on the overview. What Unity, Steam and Rust print on every
+  start (missing shaders, things created because they were missing, navmesh progress, the command
+  line echoed three times) is marked as noise and hidden behind a chip; no convar or plugin can
+  stop the game printing it. A line naming a player is never hidden. SteamCMD's output has a chip
+  of its own, which leaves its result and its errors in view. The picture Rust uploads of
+  its map is read from the console and shown once the server is up. The Admin tab no longer asks
+  `find .` during a start, which threw an exception into the console before Steam was ready.
+- More to do about a Rust player with no framework installed: heal, heal everyone, revive, kill
+  and clear the inventory, each a vanilla console command sent over RCON. Kill and clear ask first.
 
 ## Next
 

@@ -1,6 +1,9 @@
 import type { ConsoleLine } from '$lib/api/types';
 
-export type Level = 'error' | 'warn' | 'info' | 'other';
+export type Level = 'error' | 'warn' | 'info' | 'other' | 'noise' | 'steamcmd';
+
+/** Chatter, by where it came from; hidden until asked for. */
+export const QUIET: Level[] = ['noise', 'steamcmd'];
 
 /** Minecraft's section-sign palette, as both editions write it. */
 const COLOURS: Record<string, string> = {
@@ -30,6 +33,7 @@ const LEVEL = /\b(FATAL|SEVERE|ERROR|WARN(?:ING)?|INFO|DEBUG|TRACE)\b/;
  * only the opening is searched and a later "ERROR" in a message is ignored.
  */
 export function levelOf(line: ConsoleLine): Level {
+	if (line.noise) return line.stream === 'steamcmd' ? 'steamcmd' : 'noise';
 	if (line.stream === 'stderr') return 'error';
 	const found = LEVEL.exec(line.text.slice(0, 80))?.[1];
 	switch (found) {

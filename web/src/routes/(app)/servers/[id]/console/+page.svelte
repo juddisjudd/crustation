@@ -28,7 +28,16 @@
 	import { servers } from '$lib/servers.svelte';
 	import type { ConsoleLine, RconStatus } from '$lib/api/types';
 	import { createMacro, deleteMacro, listMacros, type Macro } from '$lib/api/macros';
-	import { asText, badRegex, levelOf, matcherFor, pieces, plain, type Level } from '$lib/console';
+	import {
+		asText,
+		badRegex,
+		levelOf,
+		matcherFor,
+		pieces,
+		plain,
+		QUIET,
+		type Level
+	} from '$lib/console';
 	import { t } from '$lib/i18n/index.svelte';
 
 	const MAX_LINES = 2000;
@@ -36,6 +45,8 @@
 	const STREAM_STYLE: Record<ConsoleLine['stream'], string> = {
 		stdout: '',
 		stderr: 'text-[#ff6166]',
+		install: '',
+		steamcmd: '',
 		command: 'text-white/45',
 		rcon: 'text-[#7fd1b9]'
 	};
@@ -58,7 +69,7 @@
 	let enabling = $state(false);
 
 	const LEVELS: Level[] = ['error', 'warn', 'info', 'other'];
-	let hidden = $state<Level[]>([]);
+	let hidden = $state<Level[]>([...QUIET]);
 	let query = $state('');
 	let asRegex = $state(false);
 	let timestamps = $state(remembered('timestamps', false));
@@ -86,16 +97,22 @@
 
 	const broken = $derived(badRegex(query, asRegex));
 	const matcher = $derived(broken ? null : matcherFor(query, asRegex));
-	const filtering = $derived(hidden.length > 0 || !!matcher);
+	const levels = $derived.by(() => {
+		const chatter = lines.filter((line) => line.noise);
+		return [...LEVELS, ...QUIET.filter((kind) => chatter.some((line) => levelOf(line) === kind))];
+	});
 
 	const shown = $derived.by(() => {
-		if (!filtering) return lines;
+		if (!hidden.length && !matcher) return lines;
 		return lines.filter((line) => {
 			if (hidden.includes(levelOf(line))) return false;
 			// Search on the text a person sees, not the colour codes behind it.
 			return !matcher || matcher.test(plain(line.text));
 		});
 	});
+	const filtering = $derived(!!matcher || shown.length !== lines.length);
+	// Chatter is hidden without anyone asking, so a start that has said nothing else is still waiting.
+	const asked = $derived(!!matcher || hidden.some((level) => !QUIET.includes(level)));
 
 	function toggleLevel(level: Level) {
 		hidden = hidden.includes(level) ? hidden.filter((one) => one !== level) : [...hidden, level];
@@ -362,7 +379,7 @@
 		<div
 			class="flex flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2 text-xs text-white/60"
 		>
-			{#each LEVELS as level (level)}
+			{#each levels as level (level)}
 				{@const off = hidden.includes(level)}
 				<button
 					class={[
@@ -372,6 +389,9 @@
 							: 'border-white/20 text-white/80 hover:bg-white/10'
 					]}
 					aria-pressed={!off}
+					title={level === 'noise' || level === 'steamcmd'
+						? t(`server.console.quiet.${level}`)
+						: undefined}
 					onclick={() => toggleLevel(level)}
 				>
 					{t(`server.console.level.${level}`)}
@@ -414,13 +434,14 @@
 			aria-live="off"
 			aria-label={t('server.console.output')}
 		>
-			{#if lines.length === 0}
+			{#if shown.length === 0}
 				<p class="text-white/40">
-					{running ? t('server.console.waiting') : t('server.console.stopped')}
+					{#if lines.length > 0 && asked}
+						{t('server.console.noMatch')}
+					{:else}
+						{running ? t('server.console.waiting') : t('server.console.stopped')}
+					{/if}
 				</p>
-			{/if}
-			{#if lines.length > 0 && shown.length === 0}
-				<p class="text-white/40">{t('server.console.noMatch')}</p>
 			{/if}
 			{#each shown as line (line.seq)}
 				<div class={['break-words whitespace-pre-wrap', STREAM_STYLE[line.stream]]}>

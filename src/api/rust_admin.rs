@@ -35,6 +35,10 @@ async fn load_rust(state: &AppState, id: Uuid) -> Result<ServerRow, ApiError> {
 
 /// The running server's own list, or `None` when it is down or did not answer.
 async fn listed(state: &AppState, id: Uuid) -> Option<Listed> {
+    // `find .` reads every convar, and one of them throws into the console until Steam is up.
+    if state.supervisor.state(id).await != crate::supervisor::State::Running {
+        return None;
+    }
     let text = state.supervisor.ask(id, "find .").await.ok()?;
     let listed = rust_reference::parse_find(&text);
     (!listed.convars.is_empty()).then_some(listed)

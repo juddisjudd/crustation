@@ -113,9 +113,11 @@ export interface HostStats {
 export interface ConsoleLine {
 	seq: number;
 	at: string;
-	/** `command` and `rcon` are the panel's own echo of an RCON exchange. */
-	stream: 'stdout' | 'stderr' | 'command' | 'rcon';
+	/** `command` and `rcon` are the panel's own echo of an RCON exchange; `steamcmd` is what SteamCMD printed. */
+	stream: 'stdout' | 'stderr' | 'install' | 'steamcmd' | 'command' | 'rcon';
 	text: string;
+	/** Chatter the game repeats on every start; hidden until asked for. */
+	noise: boolean;
 }
 
 export interface CommandResult {

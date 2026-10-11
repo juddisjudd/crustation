@@ -17,6 +17,7 @@ mod ping;
 mod properties;
 mod providers;
 mod rcon;
+mod rust_console;
 mod rust_game;
 mod rust_moderation;
 mod rust_mods;

@@ -8,6 +8,7 @@
 
 	let health = $state.raw<RustHealth | null>(null);
 	let rustPlus = $state.raw<RustPlus | null>(null);
+	let mapImage = $state<string | null>(null);
 
 	const port = $derived(
 		(rustPlus?.connects_to ?? rustPlus?.listening ?? '').split(':').at(-1) ?? ''
@@ -20,6 +21,7 @@
 				.then((found) => {
 					health = found.health;
 					rustPlus = found.rust_plus;
+					mapImage = found.map_image;
 				})
 				.catch(() => (health = null));
 		look();
@@ -83,6 +85,25 @@
 					</div>
 				{/if}
 			</dl>
+		</Card.Content>
+	</Card.Root>
+{/if}
+
+{#if mapImage}
+	<Card.Root>
+		<Card.Header>
+			<Card.Title>{t('server.map.title')}</Card.Title>
+		</Card.Header>
+		<Card.Content>
+			<a href={mapImage} target="_blank" rel="noreferrer" title={t('server.map.open')}>
+				<img
+					src={mapImage}
+					alt={t('server.map.alt')}
+					loading="lazy"
+					referrerpolicy="no-referrer"
+					class="aspect-square w-full rounded-md bg-muted object-cover"
+				/>
+			</a>
 		</Card.Content>
 	</Card.Root>
 {/if}

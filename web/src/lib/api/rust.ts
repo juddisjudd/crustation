@@ -51,7 +51,9 @@ export type RustPlayerAction =
 	| { action: 'say'; message: string }
 	| { action: 'teleport'; steam_id: string; to: string }
 	| { action: 'give'; steam_id: string; item: string; amount?: number }
-	| { action: 'give-all'; item: string; amount?: number };
+	| { action: 'give-all'; item: string; amount?: number }
+	| { action: 'heal' | 'revive' | 'kill' | 'clear-inventory'; steam_id: string }
+	| { action: 'heal-all' };
 
 export interface RustActed {
 	via: 'rcon' | 'file';
@@ -231,7 +233,9 @@ export interface RustPlus {
 }
 
 export const rustHealth = (serverId: string) =>
-	api.get<{ health: RustHealth | null; rust_plus: RustPlus }>(`/servers/${serverId}/rust/health`);
+	api.get<{ health: RustHealth | null; rust_plus: RustPlus; map_image: string | null }>(
+		`/servers/${serverId}/rust/health`
+	);
 
 export interface RustReport {
 	id: string;

@@ -16,6 +16,7 @@ use crate::error::{ApiError, ApiResult, Ok as OkJson};
 use crate::perms::Server as ServerPerm;
 use crate::rust_players::{self, Role};
 use crate::state::AppState;
+use crate::supervisor::State as ServerState;
 
 use super::servers::ServerRow;
 
@@ -160,6 +161,19 @@ enum Wanted {
         item: String,
         amount: Option<u32>,
     },
+    Heal {
+        steam_id: String,
+    },
+    HealAll,
+    Revive {
+        steam_id: String,
+    },
+    Kill {
+        steam_id: String,
+    },
+    ClearInventory {
+        steam_id: String,
+    },
 }
 
 impl Wanted {
@@ -168,7 +182,12 @@ impl Wanted {
             Wanted::Say { .. }
             | Wanted::Teleport { .. }
             | Wanted::Give { .. }
-            | Wanted::GiveAll { .. } => ServerPerm::Commands,
+            | Wanted::GiveAll { .. }
+            | Wanted::Heal { .. }
+            | Wanted::HealAll
+            | Wanted::Revive { .. }
+            | Wanted::Kill { .. }
+            | Wanted::ClearInventory { .. } => ServerPerm::Commands,
             _ => ServerPerm::Players,
         }
     }
@@ -386,6 +405,23 @@ async fn act(
             let amount = amount.unwrap_or(1).clamp(1, 1_000_000);
             (vec![format!("inventory.giveall \"{item}\" {amount}")], None)
         }
+        Wanted::Heal { steam_id: who } => {
+            let who = steam_id("steam_id", who)?;
+            (vec![format!("debug.refillvitals {who}")], None)
+        }
+        Wanted::HealAll => (vec!["debug.refillvitalsall".to_string()], None),
+        Wanted::Revive { steam_id: who } => {
+            let who = steam_id("steam_id", who)?;
+            (vec![format!("global.recoverplayer {who}")], None)
+        }
+        Wanted::Kill { steam_id: who } => {
+            let who = steam_id("steam_id", who)?;
+            (vec![format!("global.killplayer {who}")], None)
+        }
+        Wanted::ClearInventory { steam_id: who } => {
+            let who = steam_id("steam_id", who)?;
+            (vec![format!("inventory.clearinventory {who}")], None)
+        }
     };
 
     if !running {
@@ -454,7 +490,8 @@ async fn health(
         .require_server(&state.db, id, ServerPerm::Console)
         .await?;
     let row = load_rust(&state, id).await?;
-    let live = state.supervisor.state(id).await.is_live();
+    let now = state.supervisor.state(id).await;
+    let live = now.is_live();
     let health = match live {
         true => state
             .supervisor
@@ -482,7 +519,21 @@ async fn health(
         "listening": listening,
         "connects_to": connects_to,
     });
-    Ok(OkJson(json!({ "health": health, "rust_plus": rust_plus })))
+    // A new map's picture is linked just after the start completes, so an older one waits for that.
+    let map_image: Option<String> = match now {
+        ServerState::Running => {
+            sqlx::query_scalar("SELECT map_image FROM servers WHERE id = ?")
+                .bind(id.to_string())
+                .fetch_one(&state.db)
+                .await?
+        }
+        _ => None,
+    };
+    Ok(OkJson(json!({
+        "health": health,
+        "rust_plus": rust_plus,
+        "map_image": map_image,
+    })))
 }
 
 /// What was said lately. Rust keeps it in memory, so a restart starts it again.
@@ -606,4 +657,29 @@ async fn update(
     )
     .await;
     Ok(OkJson(json!({ "started": true, "warn": warn })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn actions_that_change_the_game_need_the_commands_permission() {
+        for json in [
+            r#"{"action":"heal","steam_id":"76561198000000001"}"#,
+            r#"{"action":"heal-all"}"#,
+            r#"{"action":"revive","steam_id":"76561198000000001"}"#,
+            r#"{"action":"kill","steam_id":"76561198000000001"}"#,
+            r#"{"action":"clear-inventory","steam_id":"76561198000000001"}"#,
+        ] {
+            let wanted: Wanted = serde_json::from_str(json).expect(json);
+            assert!(
+                matches!(wanted.permission(), ServerPerm::Commands),
+                "{json}"
+            );
+        }
+        let kick: Wanted =
+            serde_json::from_str(r#"{"action":"kick","steam_id":"76561198000000001"}"#).unwrap();
+        assert!(matches!(kick.permission(), ServerPerm::Players));
+    }
 }
