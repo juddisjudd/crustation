@@ -193,6 +193,20 @@ const RAKNET_MAGIC: [u8; 16] = [
 ];
 
 async fn bedrock(host: &str, port: u16) -> Result<Status> {
+    let (reply, latency_ms) = raknet_pong(host, port).await?;
+    // id, timestamp, server guid, magic, then a length-prefixed line.
+    if reply.len() < 35 {
+        bail!("the pong was too short to read");
+    }
+    let length = u16::from_be_bytes([reply[33], reply[34]]) as usize;
+    let end = (35 + length).min(reply.len());
+    let line = String::from_utf8_lossy(&reply[35..end]).to_string();
+
+    parse_bedrock(&line, latency_ms)
+}
+
+/// The pong as it arrived, which is all a caller checking for a RakNet listener needs.
+pub(crate) async fn raknet_pong(host: &str, port: u16) -> Result<(Vec<u8>, i64)> {
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
     socket
         .connect((host, port))
@@ -216,15 +230,7 @@ async fn bedrock(host: &str, port: u16) -> Result<Status> {
     if reply.first() != Some(&0x1c) {
         bail!("the server did not answer with a pong");
     }
-    // id, timestamp, server guid, magic, then a length-prefixed line.
-    if reply.len() < 35 {
-        bail!("the pong was too short to read");
-    }
-    let length = u16::from_be_bytes([reply[33], reply[34]]) as usize;
-    let end = (35 + length).min(reply.len());
-    let line = String::from_utf8_lossy(&reply[35..end]).to_string();
-
-    parse_bedrock(&line, latency_ms)
+    Ok((reply.to_vec(), latency_ms))
 }
 
 /// `MCPE;motd;protocol;version;online;max;guid;level;gamemode;…`
@@ -259,7 +265,7 @@ fn a2s_info_request(challenge: Option<&[u8]>) -> Vec<u8> {
     request
 }
 
-async fn source(host: &str, port: u16) -> Result<Status> {
+pub(crate) async fn source(host: &str, port: u16) -> Result<Status> {
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
     socket
         .connect((host, port))

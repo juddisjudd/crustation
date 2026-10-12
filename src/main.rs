@@ -11,6 +11,7 @@ mod items;
 mod java;
 mod mcp;
 mod nbt;
+mod network;
 mod packs;
 mod perms;
 mod ping;

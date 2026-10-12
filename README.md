@@ -24,6 +24,8 @@ For every server:
 - **A live console** you can type into, with level filters, search, colour and saved commands.
 - **A file manager**: browse, edit text in place, upload, download a folder as a zip, unpack.
 - **Stats** for the host and for each server process, with history.
+- **Addresses and ports**: the local and public address to hand out, and whether each port answers
+  from outside, asked through your own public address.
 - **Schedules**: restarts with a countdown in chat, starts, stops and commands, on a repeat, a cron
   line or after another schedule.
 - **Users, roles and API keys**, with per-server permissions.

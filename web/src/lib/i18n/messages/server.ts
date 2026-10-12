@@ -22,6 +22,44 @@ export const server = {
 		rustPlusFix:
 			'Publish TCP {port} and forward it on your router, or set the Rust+ public address in Settings.'
 	},
+	network: {
+		title: 'Network',
+		local: 'Local address',
+		public: 'Public address',
+		localUnknown: 'Not known from here',
+		localHint: 'Open the panel by its IP address and it shows here.',
+		publicUnknown: 'Could not be found',
+		ports: 'Ports',
+		refresh: 'Check again',
+		checking: 'Checking…',
+		whenRunning: 'The ports are checked while the server is running.',
+		failed: 'Could not read the network details.',
+		names: {
+			game: 'Game',
+			query: 'Query',
+			rust_plus: 'Rust+'
+		},
+		states: {
+			open: 'Open',
+			closed: 'Closed',
+			quiet: 'Not listening',
+			unanswered: 'No answer',
+			listening: 'Listening',
+			unknown: 'Unknown'
+		},
+		untestable:
+			'This port answers no question the panel can ask, so it was not tried from outside.',
+		hints: {
+			open: 'Asked from the panel through {address}, the way a player outside reaches it.',
+			closed:
+				'The closed ports did not answer through {address}. Forward them on your router to this machine.',
+			closedDocker:
+				'The closed ports did not answer through {address}. Publish them on the container and forward them on your router.',
+			unanswered:
+				'Nothing answered through {address}. Either the ports are not forwarded, or your router does not send traffic for its own address back in. The panel cannot tell which from here.',
+			untested: 'Only checked on this machine, because the public address is not known.'
+		}
+	},
 	map: {
 		title: 'Map',
 		alt: 'The map this server is running',

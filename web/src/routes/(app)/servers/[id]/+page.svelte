@@ -7,6 +7,7 @@
 	import { recentStats } from '$lib/api/servers';
 	import AddonCard from '$lib/components/addon-card.svelte';
 	import MotdEditor from '$lib/components/motd-editor.svelte';
+	import NetworkCard from '$lib/components/servers/network-card.svelte';
 	import RustHealthCard from '$lib/components/servers/rust-health-card.svelte';
 	import RustUpdatesCard from '$lib/components/servers/rust-updates-card.svelte';
 	import { servers, statusLabel } from '$lib/servers.svelte';
@@ -303,6 +304,7 @@
 					</Card.Content>
 				</Card.Root>
 			{/if}
+			<NetworkCard {server} />
 			{#if rust && server.permissions.includes('CONSOLE')}
 				<RustHealthCard serverId={server.id} />
 			{/if}

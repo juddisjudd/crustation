@@ -176,6 +176,11 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 - A panel for each Rust player, opened from their name: status, time connected, health and
   address, with everything there is to do about them in groups. The row menu stays for the quick
   ones, no longer wraps, and leaves out what cannot be done to somebody who is not on the server.
+- A Network card on every server's overview: the local and public address, and each port players
+  reach with whether it is open. The panel asks the port on the loopback, then through its own
+  public address, so a forwarded port answers the way it would for a player. Silence only reads
+  as closed once something has answered that way, since a router that does not loop traffic back
+  looks the same as a closed port.
 
 ## Next
 

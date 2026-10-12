@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod files;
 pub mod items;
 pub mod macros;
+pub mod network;
 pub mod pack_notes;
 pub mod packs;
 pub mod panel;

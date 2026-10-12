@@ -95,8 +95,6 @@ async fn session(
     identity: Identity,
     State(state): State<AppState>,
 ) -> ApiResult<impl IntoResponse> {
-    let docker =
-        std::env::var("CRUSTATION_DOCKER").is_ok() || std::path::Path::new("/.dockerenv").exists();
     Ok(OkJson(json!({
         "user": user_json(&identity),
         "permissions": {
@@ -108,7 +106,7 @@ async fn session(
         },
         "panel": {
             "version": env!("CARGO_PKG_VERSION"),
-            "docker": docker,
+            "docker": crate::network::in_container(),
             "timezone": iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".into()),
             "starting": false,
             "started_at": state.started_at,

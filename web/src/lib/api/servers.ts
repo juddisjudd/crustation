@@ -43,6 +43,27 @@ export function enableRcon(serverId: string) {
 	return api.post<{ port: number; restart_required: boolean }>(`/servers/${serverId}/rcon`, {});
 }
 
+export interface PortReport {
+	name: 'game' | 'query' | 'rust_plus';
+	port: number;
+	protocol: 'tcp' | 'udp';
+	/** Null when the panel could not tell. */
+	listening: boolean | null;
+	/** What asking through the public address showed; null when that was never asked. */
+	outside: 'open' | 'closed' | 'unanswered' | 'untested' | null;
+}
+
+export interface ServerNetwork {
+	/** The panel's own address on the local network, which a container cannot see. */
+	local: string | null;
+	public: string | null;
+	running: boolean;
+	ports: PortReport[];
+}
+
+export const serverNetwork = (serverId: string) =>
+	api.get<ServerNetwork>(`/servers/${serverId}/network`);
+
 export interface RecentPoint {
 	cpu: number;
 	memory_percent: number;
