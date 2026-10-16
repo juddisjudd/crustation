@@ -39,6 +39,7 @@
 		type Level
 	} from '$lib/console';
 	import { t } from '$lib/i18n/index.svelte';
+	import { takesCommands } from '$lib/format';
 
 	const MAX_LINES = 2000;
 
@@ -55,7 +56,9 @@
 
 	const server = $derived(data.server);
 	const running = $derived(servers.isRunning(server.id));
-	const canCommand = $derived(server.permissions.includes('COMMANDS'));
+	const canCommand = $derived(
+		server.permissions.includes('COMMANDS') && takesCommands(server.kind)
+	);
 	const canConfigure = $derived(server.permissions.includes('CONFIG'));
 
 	let lines = $state.raw<ConsoleLine[]>([]);
@@ -577,6 +580,10 @@
 					</InputGroup.Addon>
 				</InputGroup.Root>
 			</form>
+		{:else if !takesCommands(server.kind)}
+			<p class="border-t border-white/10 px-3 py-2 text-xs text-white/50">
+				{t('server.console.readOnly')}
+			</p>
 		{/if}
 	</div>
 </div>

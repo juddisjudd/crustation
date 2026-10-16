@@ -30,13 +30,16 @@
 		type Trigger,
 		type WipeKind
 	} from '$lib/api/schedules';
-	import { dateTime } from '$lib/format';
+	import { dateTime, isSteam, takesCommands } from '$lib/format';
 	import { t, type MessageKey } from '$lib/i18n/index.svelte';
 
 	let { data } = $props();
 
 	const server = $derived(data.server);
 	const rust = $derived(server.kind === 'rust');
+	const steam = $derived(isSteam(server.kind));
+	// Enshrouded and Dragonwilds read no commands, so nothing can be run or said in chat.
+	const talks = $derived(takesCommands(server.kind));
 
 	type Unit = 'minutes' | 'hours' | 'days';
 	const UNIT_SECONDS: Record<Unit, number> = { minutes: 60, hours: 3600, days: 86_400 };
@@ -67,9 +70,11 @@
 	const actionTypes = $derived<Action['type'][]>(
 		rust
 			? ['start', 'stop', 'restart', 'command', 'wipe', 'update']
-			: ['start', 'stop', 'restart', 'command']
+			: steam
+				? ['start', 'stop', 'restart', 'update']
+				: ['start', 'stop', 'restart', 'command']
 	);
-	const warns = $derived(['stop', 'restart', 'wipe', 'update'].includes(actionType));
+	const warns = $derived(talks && ['stop', 'restart', 'wipe', 'update'].includes(actionType));
 
 	async function load() {
 		loadFailed = false;
@@ -175,7 +180,7 @@
 				: triggerType === 'cron'
 					? { type: 'cron', expression: expression.trim() }
 					: { type: 'after', schedule_id: after, delay_seconds: Math.round(delayMinutes * 60) };
-		const warn_seconds = Number(warn);
+		const warn_seconds = talks ? Number(warn) : 0;
 		const action: Action =
 			actionType === 'start'
 				? { type: 'start' }
@@ -413,6 +418,8 @@
 						<Button type="button" variant="outline" size="sm" onclick={() => preset('monthly')}>
 							{t('schedules.presets.monthly')}
 						</Button>
+					{/if}
+					{#if steam}
 						<Button type="button" variant="outline" size="sm" onclick={() => preset('updates')}>
 							{t('schedules.presets.updates')}
 						</Button>

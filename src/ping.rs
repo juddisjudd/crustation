@@ -24,6 +24,9 @@ pub struct Status {
     /// and sends none at all when `hide-online-players` is on. Bedrock's pong
     /// carries no names, so this is empty there.
     pub sample: Vec<Player>,
+    /// A Source server's keywords, where some games say more than the fields do.
+    #[serde(skip)]
+    pub keywords: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +80,18 @@ pub async fn query(kind: &str, host: &str, port: u16) -> Result<Status> {
             tokio::time::timeout(TIMEOUT, source(host, port))
                 .await
                 .context("the server did not answer in time")?
+        }
+        crate::enshrouded::KIND => {
+            let mut status = tokio::time::timeout(TIMEOUT, source(host, port))
+                .await
+                .context("the server did not answer in time")??;
+            if let Some(build) = crate::enshrouded::build_in(&status.keywords) {
+                status.version = build;
+            }
+            Ok(status)
+        }
+        crate::dragonwilds::KIND => {
+            bail!("Dragonwilds answers no query; its console says who is on")
         }
         _ => tokio::time::timeout(TIMEOUT, java(host, port))
             .await
@@ -135,6 +150,7 @@ async fn java(host: &str, port: u16) -> Result<Status> {
         players_max: parsed["players"]["max"].as_i64().unwrap_or(0),
         latency_ms,
         sample: sample_from(&parsed["players"]["sample"]),
+        keywords: String::new(),
     })
 }
 
@@ -247,6 +263,7 @@ fn parse_bedrock(line: &str, latency_ms: i64) -> Result<Status> {
         latency_ms,
         // A pong carries counts, never names.
         sample: Vec::new(),
+        keywords: String::new(),
     })
 }
 
@@ -309,7 +326,8 @@ fn parse_source(reply: &[u8], latency_ms: i64) -> Result<Status> {
     let version = take_c_string(&mut cursor).unwrap_or_default();
 
     // The counts above are single bytes; Rust repeats them in full as `cp` and `mp` tags.
-    for tag in keywords(cursor).split(',') {
+    let keywords = keywords(cursor);
+    for tag in keywords.split(',') {
         if let Some(count) = tag.strip_prefix("cp").and_then(|n| n.parse().ok()) {
             players_online = count;
         } else if let Some(count) = tag.strip_prefix("mp").and_then(|n| n.parse().ok()) {
@@ -325,6 +343,7 @@ fn parse_source(reply: &[u8], latency_ms: i64) -> Result<Status> {
         latency_ms,
         // Names need a second query, and the panel only wants the counts.
         sample: Vec::new(),
+        keywords,
     })
 }
 

@@ -3,6 +3,8 @@ mod auth;
 mod bridge;
 mod config;
 mod db;
+mod dragonwilds;
+mod enshrouded;
 mod error;
 mod events;
 mod files;
@@ -19,20 +21,23 @@ mod properties;
 mod providers;
 mod rcon;
 mod rust_console;
+mod rust_frameworks;
 mod rust_game;
 mod rust_moderation;
 mod rust_mods;
 mod rust_players;
 mod rust_reference;
-mod rust_updates;
 mod rust_wipe;
 mod scheduler;
 mod state;
 mod stats;
 mod steam;
+mod steam_games;
+mod steam_updates;
 mod supervisor;
 mod web;
 mod webrcon;
+mod wine;
 
 use std::path::PathBuf;
 
@@ -77,7 +82,7 @@ async fn main() -> Result<()> {
 
     tokio::spawn(stats::collect(state.clone()));
     tokio::spawn(autostart(state.clone()));
-    tokio::spawn(rust_updates::watch(state.clone()));
+    tokio::spawn(steam_updates::watch(state.clone()));
     tokio::spawn(scheduler::run_due(state.clone()));
 
     tracing::info!("Crustation is listening on http://{bind}");

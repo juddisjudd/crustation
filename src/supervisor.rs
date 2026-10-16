@@ -259,19 +259,29 @@ impl Supervisor {
         tokio::fs::create_dir_all(&launch.directory)
             .await
             .with_context(|| format!("creating {}", launch.directory.display()))?;
+        if launch.kind == crate::dragonwilds::KIND {
+            crate::dragonwilds::before_start(&launch.directory)
+                .await
+                .context("putting the admin password back")?;
+        }
 
         let parts = shell_words::split(&launch.command).context("parsing the start command")?;
         let (program, args) = parts
             .split_first()
             .ok_or_else(|| anyhow!("the start command is empty"))?;
 
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(args)
             .current_dir(&launch.directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(false)
+            .kill_on_drop(false);
+        // Its own group, so a stop reaches the game behind a wrapper such as Wine or a launch script.
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command
             .spawn()
             .with_context(|| format!("starting {program}"))?;
 
@@ -290,13 +300,12 @@ impl Supervisor {
         self.events
             .server_state(launch.id, State::Starting.as_str(), flags);
 
-        let rust = launch.kind == crate::rust_game::KIND;
         self.pump(
             launch.id,
             instance.clone(),
             stdout,
             "stdout",
-            rust,
+            launch.kind.clone(),
             launch.console_backlog,
         );
         self.pump(
@@ -304,7 +313,7 @@ impl Supervisor {
             instance.clone(),
             stderr,
             "stderr",
-            rust,
+            launch.kind.clone(),
             launch.console_backlog,
         );
         self.watch_exit(launch, instance);
@@ -317,7 +326,7 @@ impl Supervisor {
         instance: Arc<Mutex<Instance>>,
         reader: R,
         stream: &'static str,
-        rust: bool,
+        kind: String,
         backlog: usize,
     ) where
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -325,19 +334,30 @@ impl Supervisor {
         let events = self.events.clone();
         let db = self.db.clone();
         tokio::spawn(async move {
+            let rust = kind == crate::rust_game::KIND;
+            let dragonwilds = kind == crate::dragonwilds::KIND;
             let mut lines = BufReader::new(reader).lines();
             let mut chatter = rust.then(crate::rust_console::Noise::default);
             while let Ok(Some(text)) = lines.next_line().await {
-                let text = strip_escapes(&text).into_owned();
-                // The only place a Bedrock server ever says an Xbox id out loud.
-                if let Some((name, xuid)) = xuid_in(&text) {
-                    remember_xuid(&db, id, &name, &xuid).await;
-                } else if let Some(name) = left_in(&text) {
-                    mark_left(&db, id, &name).await;
-                } else if rust && let Some(url) = crate::rust_console::map_image(&text) {
-                    remember_map_image(&db, id, url).await;
+                let text = strip_escapes(&text);
+                let text = match dragonwilds {
+                    true => crate::dragonwilds::redact(&text).into_owned(),
+                    false => text.into_owned(),
+                };
+                match arrival_in(&kind, &text) {
+                    Some(Seen::Arrived(name, player_id)) => {
+                        mark_arrived(&db, id, &name, player_id.as_deref()).await;
+                    }
+                    Some(Seen::Left(name)) => mark_left(&db, id, &name).await,
+                    None if rust => {
+                        if let Some(url) = crate::rust_console::map_image(&text) {
+                            remember_map_image(&db, id, url).await;
+                        }
+                    }
+                    None => {}
                 }
-                let noise = chatter.as_mut().is_some_and(|chatter| chatter.hears(&text));
+                let noise = chatter.as_mut().is_some_and(|chatter| chatter.hears(&text))
+                    || (dragonwilds && crate::dragonwilds::is_noise(&text));
                 let mut guard = instance.lock().await;
                 guard.rust_plus_failure = rust_plus_after(guard.rust_plus_failure.take(), &text);
                 let line = guard.push(stream, text, noise, backlog);
@@ -474,6 +494,14 @@ impl Supervisor {
     /// Runs a command over RCON when the server has it set up, and over stdin
     /// otherwise. Only RCON hands an answer back.
     pub async fn run_command(&self, id: Uuid, command: &str) -> Result<Outcome> {
+        let kind: String = sqlx::query_scalar("SELECT kind FROM servers WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_one(&self.db)
+            .await
+            .unwrap_or_default();
+        if !crate::steam_games::takes_commands(&kind) {
+            bail!("this game reads no commands, from its console or anywhere else");
+        }
         self.run(id, command, true).await
     }
 
@@ -592,6 +620,8 @@ impl Supervisor {
         if !launch.stop_command.trim().is_empty() {
             // Over RCON where there is one, since Rust does not reliably read its stdin.
             let _ = self.run(id, &launch.stop_command, false).await;
+        } else if let Some(pid) = self.pid(id).await {
+            interrupt(pid);
         }
 
         let deadline =
@@ -613,11 +643,11 @@ impl Supervisor {
         let instance = self.instance(id).await;
         let mut guard = instance.lock().await;
         guard.stopping = true;
-        if let Some(child) = guard.child.as_mut() {
-            child.start_kill().ok();
-        } else if let Some(pid) = guard.pid {
-            // The waiter owns the Child; fall back to the pid.
+        // By pid, so whatever the server started goes with it.
+        if let Some(pid) = guard.pid {
             kill_pid(pid);
+        } else if let Some(child) = guard.child.as_mut() {
+            child.start_kill().ok();
         }
         Ok(())
     }
@@ -688,26 +718,48 @@ fn left_in(line: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-/// Kept beside the name, in the column Java uses for its own player id. The
-/// line is an arrival as well as an id, so it marks them on.
-async fn remember_xuid(db: &crate::db::Db, id: Uuid, name: &str, xuid: &str) {
+/// Somebody the console said came or went.
+#[derive(Debug, PartialEq)]
+enum Seen {
+    Arrived(String, Option<String>),
+    Left(String),
+}
+
+/// Bedrock, Enshrouded and Dragonwilds each announce comings and goings in their own words.
+fn arrival_in(kind: &str, line: &str) -> Option<Seen> {
+    match kind {
+        crate::enshrouded::KIND => crate::enshrouded::arrival(line)
+            .map(|name| Seen::Arrived(name, None))
+            .or_else(|| crate::enshrouded::departure(line).map(Seen::Left)),
+        crate::dragonwilds::KIND => crate::dragonwilds::arrival(line)
+            .map(|(player, name)| Seen::Arrived(name, Some(player)))
+            .or_else(|| crate::dragonwilds::departure(line).map(|(_, name)| Seen::Left(name))),
+        _ => xuid_in(line)
+            .map(|(name, xuid)| Seen::Arrived(name, Some(xuid)))
+            .or_else(|| left_in(line).map(Seen::Left)),
+    }
+}
+
+/// Marks somebody on, keeping any id the line gave in the column Java uses for its own.
+async fn mark_arrived(db: &crate::db::Db, id: Uuid, name: &str, player_id: Option<&str>) {
     let now = chrono::Utc::now().to_rfc3339();
     let result = sqlx::query(
         "INSERT INTO server_players (server_id, name, uuid, first_seen, last_seen, online)
          VALUES (?, ?, ?, ?, ?, 1)
-         ON CONFLICT(server_id, name) DO UPDATE SET uuid = excluded.uuid,
-                                                    last_seen = excluded.last_seen,
-                                                    online = 1",
+         ON CONFLICT(server_id, name) DO UPDATE SET
+             uuid = COALESCE(excluded.uuid, server_players.uuid),
+             last_seen = excluded.last_seen,
+             online = 1",
     )
     .bind(id.to_string())
     .bind(name)
-    .bind(xuid)
+    .bind(player_id)
     .bind(&now)
     .bind(&now)
     .execute(db)
     .await;
     if let Err(error) = result {
-        tracing::debug!(%error, "could not write down an Xbox id");
+        tracing::debug!(%error, "could not mark somebody as on");
     }
 }
 
@@ -813,11 +865,27 @@ fn looks_ready(line: &str) -> bool {
         || lower.contains("server started")
         || lower.contains("for help, type")
         || lower.contains("server startup complete")
+        // Enshrouded once its world is loaded, then Dragonwilds loading its world or advertising a new one.
+        || lower.contains("[game_server] switching state from loadecsscene to run")
+        || lower.contains("world load succeeded")
+        || lower.contains("create session - advertise")
 }
+
+/// Ctrl+C to the server's whole group, which is how a game that reads no commands is asked to stop.
+#[cfg(unix)]
+fn interrupt(pid: u32) {
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGINT);
+    }
+}
+
+#[cfg(windows)]
+fn interrupt(_pid: u32) {}
 
 #[cfg(unix)]
 fn kill_pid(pid: u32) {
     unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
         libc::kill(pid as i32, libc::SIGKILL);
     }
 }
@@ -946,5 +1014,60 @@ mod tests {
         ));
         assert!(looks_ready("[INFO] Server started."));
         assert!(!looks_ready("[INFO] Preparing level"));
+    }
+
+    #[test]
+    fn the_steam_games_say_they_are_up_in_their_own_words() {
+        assert!(looks_ready(
+            "[game_server] Switching state from LoadEcsScene to Run after 488.41 ms"
+        ));
+        assert!(!looks_ready("[Session] 'HostOnline' (up)!"));
+        assert!(looks_ready(
+            "[2026.09.28-10.00.00:000][  0]LogPersistence: [DedicatedServer] PostLoadWorldState() : World load SUCCEEDED (slot: Test World)"
+        ));
+        assert!(looks_ready(
+            "LogDomMatcherSession: CREATE SESSION - Advertise[1]"
+        ));
+    }
+
+    #[test]
+    fn each_game_announces_its_players_its_own_way() {
+        assert_eq!(
+            arrival_in(
+                crate::enshrouded::KIND,
+                "[server] Player 'Wanderer' logged in with Permissions:"
+            ),
+            Some(Seen::Arrived("Wanderer".into(), None))
+        );
+        assert_eq!(
+            arrival_in(crate::enshrouded::KIND, "[server] Remove Player 'Wanderer'"),
+            Some(Seen::Left("Wanderer".into()))
+        );
+        let id = "0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            arrival_in(
+                crate::dragonwilds::KIND,
+                &format!("LogDomMatcherSession: Player ADDED to session [{id}]-[Wanderer]")
+            ),
+            Some(Seen::Arrived("Wanderer".into(), Some(id.into())))
+        );
+        assert_eq!(
+            arrival_in(
+                "minecraft_bedrock",
+                "Player connected: ohitsjudd, xuid: 2535458356136740"
+            ),
+            Some(Seen::Arrived(
+                "ohitsjudd".into(),
+                Some("2535458356136740".into())
+            ))
+        );
+        // Each game reads only its own lines.
+        assert_eq!(
+            arrival_in(
+                crate::dragonwilds::KIND,
+                "[server] Player 'Wanderer' logged in with Permissions:"
+            ),
+            None
+        );
     }
 }

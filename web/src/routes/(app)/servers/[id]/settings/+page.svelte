@@ -1,10 +1,14 @@
 <script lang="ts">
 	import CalendarClockIcon from '@lucide/svelte/icons/calendar-clock';
+	import CrownIcon from '@lucide/svelte/icons/crown';
 	import EraserIcon from '@lucide/svelte/icons/eraser';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import HammerIcon from '@lucide/svelte/icons/hammer';
+	import HeartPulseIcon from '@lucide/svelte/icons/heart-pulse';
+	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import MegaphoneIcon from '@lucide/svelte/icons/megaphone';
 	import PackageIcon from '@lucide/svelte/icons/package';
+	import PickaxeIcon from '@lucide/svelte/icons/pickaxe';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import ScaleIcon from '@lucide/svelte/icons/scale';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -13,7 +17,9 @@
 	import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
 	import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import SwordsIcon from '@lucide/svelte/icons/swords';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import TrendingUpIcon from '@lucide/svelte/icons/trending-up';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { toast } from 'svelte-sonner';
@@ -69,7 +75,11 @@
 	const canConfigure = $derived(server.permissions.includes('CONFIG'));
 	// Rust keeps its settings on the start command rather than in a file.
 	const rust = $derived(server.kind === 'rust');
+	const enshrouded = $derived(server.kind === 'enshrouded');
+	// Enshrouded and Dragonwilds keep a settings file they rewrite while running.
+	const gameFile = $derived(enshrouded || server.kind === 'dragonwilds');
 	const running = $derived(servers.isLive(server.id));
+	const locked = $derived(!!loaded?.stopped_only && running);
 
 	async function erase() {
 		const { confirmed, checked } = await confirmWith({
@@ -127,6 +137,12 @@
 		Creative: HammerIcon,
 		'Rust+': SmartphoneIcon,
 		Server: ServerIcon,
+		Survival: HeartPulseIcon,
+		Enemies: SwordsIcon,
+		Resources: PickaxeIcon,
+		Experience: TrendingUpIcon,
+		Owner: CrownIcon,
+		Access: KeyRoundIcon,
 		'Resource pack': PackageIcon
 	};
 
@@ -341,10 +357,16 @@
 <div class="page py-4">
 	<div>
 		<h1 class="text-base font-semibold tracking-tight">
-			{rust ? t('settings.rust.title') : t('settings.title')}
+			{rust || gameFile ? t('settings.rust.title') : t('settings.title')}
 		</h1>
 		<p class="mt-1 text-sm text-muted-foreground">
-			{rust ? t('settings.rust.description') : t('settings.description')}
+			{rust
+				? t('settings.rust.description')
+				: gameFile
+					? enshrouded
+						? t('settings.game.enshrouded')
+						: t('settings.game.dragonwilds')
+					: t('settings.description')}
 		</p>
 	</div>
 
@@ -385,7 +407,7 @@
 						<RotateCcwIcon />
 						{t('settings.discard')}
 					</Button>
-					<Button size="sm" onclick={save} disabled={saving}>
+					<Button size="sm" onclick={save} disabled={saving || locked}>
 						{#if saving}<Spinner class="size-4" />{/if}
 						{saving ? t('settings.saving') : t('settings.save')}
 					</Button>
@@ -432,9 +454,16 @@
 			{/each}
 		</div>
 	{:else}
+		{#if locked}
+			<Alert.Root class="mt-6">
+				<Alert.Description>{t('settings.game.locked')}</Alert.Description>
+			</Alert.Root>
+		{/if}
 		{#if !loaded.exists}
 			<Alert.Root class="mt-6">
-				<Alert.Description>{t('settings.missing')}</Alert.Description>
+				<Alert.Description>
+					{gameFile ? t('settings.game.missing') : t('settings.missing')}
+				</Alert.Description>
 			</Alert.Root>
 		{/if}
 
@@ -567,7 +596,11 @@
 					>
 						{@render heading(
 							SlidersHorizontalIcon,
-							rust ? t('settings.rust.otherTitle') : t('settings.other.title'),
+							rust
+								? t('settings.rust.otherTitle')
+								: gameFile
+									? t('settings.game.otherTitle')
+									: t('settings.other.title'),
 							countEdits(loaded.other),
 							rust ? t('settings.rust.otherDescription') : undefined
 						)}

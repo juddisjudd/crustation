@@ -58,12 +58,12 @@ it, the Svelte side consumes it, and neither invents shapes the other does not k
 | PATCH  | `/servers/{id}`         | Change settings. Only fields the caller may change are accepted.                                                                                                                                                                                                                                |
 | DELETE | `/servers/{id}`         | `?delete_files=true` also removes the folder. The server has to be stopped first, or the answer is `409 CONFLICT`. Requires `CONFIG`; the interface offers it as a danger zone on the server's settings tab.                                                                                 |
 | POST   | `/servers/{id}/action`  | `{action: "start"\|"stop"\|"restart"\|"kill"\|"clone"}`. Returns immediately; watch the events.                                                                                                                                                                                                 |
-| POST   | `/servers/{id}/command` | `{command}` → `{via: "rcon"\|"stdin", output}`. Goes over RCON when the server has it set up, and over stdin otherwise; only RCON returns `output`. Rust ignores stdin, so there a command RCON cannot deliver is an error. Requires `COMMANDS`.                                                                    |
-| GET    | `/servers/{id}/console` | Recent console lines: `{lines: [{seq, at, stream, text, noise}]}`, `?after=<seq>` for the tail. `stream` is `stdout`, `stderr`, `install` for what the installer did, `steamcmd` for what SteamCMD printed while it ran, and `command` and `rcon` for the panel's echo of an RCON exchange. `noise` marks what a Rust server prints on every start and nobody needs (engine and Steam chatter, the command line echoed a second and third time, navmesh progress), and everything on `steamcmd` but its `Success!` and its failures; the interface hides those lines until asked, with a switch for each of the two. A line naming a player is never noise. |
+| POST   | `/servers/{id}/command` | `{command}` → `{via: "rcon"\|"stdin", output}`. Goes over RCON when the server has it set up, and over stdin otherwise; only RCON returns `output`. Rust ignores stdin, so there a command RCON cannot deliver is an error. Enshrouded and Dragonwilds read no commands at all, so they answer `409`. Requires `COMMANDS`.                                                                    |
+| GET    | `/servers/{id}/console` | Recent console lines: `{lines: [{seq, at, stream, text, noise}]}`, `?after=<seq>` for the tail. `stream` is `stdout`, `stderr`, `install` for what the installer did, `steamcmd` for what SteamCMD printed while it ran, and `command` and `rcon` for the panel's echo of an RCON exchange. `noise` marks what a Rust server prints on every start and nobody needs (engine and Steam chatter, the command line echoed a second and third time, navmesh progress), the lines Dragonwilds tags `Verbose` (its session heartbeats among them), and everything on `steamcmd` but its `Success!` and its failures; the interface hides those lines until asked, with a switch for each of the two. A line naming a player is never noise. |
 | DELETE | `/servers/{id}/console` | Drops the backlog the panel holds for this server, for everybody watching, and publishes `cleared` on the console topic. Sequence numbers carry on, so a client polling with `after` is unaffected. The game's own log files are untouched. Requires `CONSOLE`.                             |
 | GET    | `/servers/{id}/rcon`    | `{supported, enabled, port, reachable}`. `supported` is false for Bedrock, which has no RCON. `reachable` is proven by connecting, so it is only ever true while the server is up. Requires `COMMANDS`.                                                                                         |
 | POST   | `/servers/{id}/rcon`    | Turns RCON on: sets `enable-rcon`, picks a free port and writes a password into `server.properties`. `{regenerate_password}` replaces one that is already there. Returns `{port, restart_required}`. `409 CONFLICT` when the server has not written `server.properties` yet. Requires `CONFIG`. |
-| GET    | `/servers/{id}/network` | `{local, public, running, ports: [{name, port, protocol, listening, outside}]}`: where the server is reached and whether its ports answer. `local` is the panel's own address on the local network, and `null` inside a container, which only sees the address Docker gave it; the interface then offers the address the browser used. `public` is the address the internet sees, asked of `checkip.amazonaws.com` and then `ipv4.icanhazip.com`, at most every ten minutes. `ports` are the ones players reach: `game` for every kind, plus `query` and `rust_plus` on Rust (left out under `app.port -1`); RCON is the panel's own and is not listed. While the server is `running`, each port is asked on the loopback, and one that answers is asked again through `public`, which a router that loops traffic back delivers as it would a player's. `listening` is `null` when the panel cannot tell: a UDP port that answers nothing, anywhere but Linux. `outside` is `open`; `closed` (silent, though something has answered through `public` since the panel started, so the router is known to loop back); `unanswered` (silent, and nothing ever has, which is also how a router that does not loop back looks); `untested` (no public address, or a port that answers no question the panel can ask); or `null` for a port that is not listening or a server that is not running. A Rust+ connectivity test that Rust reported failing makes `rust_plus` `closed`. Any permission on the server.                                                                    |
+| GET    | `/servers/{id}/network` | `{local, public, running, ports: [{name, port, protocol, listening, outside}]}`: where the server is reached and whether its ports answer. `local` is the panel's own address on the local network, and `null` inside a container, which only sees the address Docker gave it; the interface then offers the address the browser used. `public` is the address the internet sees, asked of `checkip.amazonaws.com` and then `ipv4.icanhazip.com`, at most every ten minutes. `ports` are the ones players reach: `game` for every kind, plus `query` and `rust_plus` on Rust (left out under `app.port -1`) and `beacon` on Dragonwilds; RCON is the panel's own and is not listed. While the server is `running`, each port is asked on the loopback, and one that answers is asked again through `public`, which a router that loops traffic back delivers as it would a player's. `listening` is `null` when the panel cannot tell: a UDP port that answers nothing, anywhere but Linux. `outside` is `open`; `closed` (silent, though something has answered through `public` since the panel started, so the router is known to loop back); `unanswered` (silent, and nothing ever has, which is also how a router that does not loop back looks); `untested` (no public address, or a port that answers no question the panel can ask); or `null` for a port that is not listening or a server that is not running. A Rust+ connectivity test that Rust reported failing makes `rust_plus` `closed`. Any permission on the server.                                                                    |
 | GET    | `/servers/{id}/logs`    | Log files: `{files: [{name, size, modified}]}`; `?file=` returns its contents.                                                                                                                                                                                                                  |
 | GET    | `/servers/stats`        | Recent history for every server the caller can see, in one call: `?minutes=&points=` → `{since, minutes, series: {"<id>": [{cpu, memory_percent} | null]}}`. Averaged into `points` buckets so a line is a fixed length; a bucket nothing was sampled in is `null`, which draws as a gap rather than a floor. |
 | GET    | `/servers/{id}/players` | `{online, count, max, sampled, known, lists, operators, banned, listed, running, edition}`. `operators` and `banned` are lower-cased names, for badges; `listed` is everybody any list names. A row in `known` is only ever `online` while the server is live, so one that stops with people on it reports nobody rather than leaving them there. Requires `PLAYERS`. |
@@ -259,8 +259,6 @@ The Minecraft players, add-on and bridge routes answer `422` for a Rust server, 
 | PUT    | `/servers/{id}/rust/convars/{name}` | `{value, now, startup}` → `{live, startup, restart_required}`. `now` tells the running server (`409` when it is down), reading the value back into `live`; a double quote is refused, as Rust cannot escape one. `startup` writes it to the start command through the same rules as `PUT /properties`, and `value: null` with `startup` takes it off. At least one of the two. Managed names answer `422`. Requires `COMMANDS`, and `CONFIG` for `startup`. |
 | GET    | `/servers/{id}/rust/commands`       | `{running, live, commands: [{name, help, generated}]}`: Carbon's list of server commands, or once the server has finished starting and answers the ones `find .` lists, plugins' included. Running one is `POST /servers/{id}/command`. Requires `COMMANDS`. |
 | POST   | `/servers/{id}/rust/wipe`           | `{kind: "map"|"blueprints"|"full", new_seed}` → `{deleted, seed}`. Deletes save files from `server/<identity>/`: a map wipe the `.map`, `.sav` and its backups, the map caches, `sv.files` and `player.states`; a blueprint wipe `player.blueprints`; a full wipe both plus deaths, identities, teams and clans. `companion.id`, `player.tokens` and `cfg/` are never touched. `new_seed` writes a random `server.seed` unless the map comes from `server.levelurl`. The server has to be stopped (`409` otherwise). Requires `CONFIG`. |
-| GET    | `/servers/{id}/rust/build`          | `{branch, installed, latest, update_available}`. `installed` is the `buildid` in `steamapps/appmanifest_258550.acf`; `latest` is what SteamCMD's `app_info_print` says for the branch (`release` is Steam's `public`), asked at most every half hour and also in the background, which is what sets `flags.update_available` on the server. Requires `CONFIG`. |
-| POST   | `/servers/{id}/rust/build`          | `{warn}` → `{started, warn}`. Updates from Steam in the background: a running server first counts `warn` seconds down in chat (at most 1800), then stops, runs `app_update` with `install` events while `flags.updating` is set, and starts again. `409` while it is already installing or updating. Requires `CONFIG`. |
 | GET    | `/servers/{id}/rust/mods`           | `{framework: "oxide"|"carbon"|null, version, running, plugins}`. Oxide counts when `RustDedicated_Data/Managed/Oxide.Rust.dll` is there; Carbon when `carbon/managed/Carbon.Preloader.dll` is there and the start command loads it through Unity Doorstop. `version` is `oxide.version` or `c.version`, asked while the server runs. `plugins` are `{file, name, title, author, version, enabled}`, read from each file's `[Info(...)]`. Requires `FILES`. |
 | PUT    | `/servers/{id}/rust/mods`           | `{framework}` → `{started}`. In the background, on a stopped server: taking Oxide off runs SteamCMD's check to restore the game files it replaced; Oxide is unpacked from its latest Linux release; Carbon from the build for the server's branch, with `TERM`, `DOORSTOP_ENABLED`, `DOORSTOP_TARGET_ASSEMBLY` and `LD_PRELOAD` added to the `env` on the start command (and taken off again for anything else). Steam updates put Oxide back afterwards on their own. `409` while running, installing or updating. Requires `CONFIG`. |
 | POST   | `/servers/{id}/rust/plugins`        | `?name=Plugin.cs` with the source as the body. Lands in `oxide/plugins` or `carbon/plugins`, which the framework compiles as it changes. Requires `FILES`. |
@@ -297,6 +295,107 @@ loopback, which is where a game server in the same container comes from, and `40
 | POST   | `/rust-hooks/reports/{server_id}`  | The form Rust posts an F7 report as: `data` (its JSON), `userid` and `key`, which has to match the server's report key. |
 | GET    | `/rust-hooks/bans/{steam_id}`      | `404` for nobody on the shared list, or `{steamId, reason, expiryDate, isMute}` with `expiryDate` 0 for a ban that never ends. |
 
+### Steam updates
+
+Every game installed through SteamCMD (Rust, Enshrouded and Dragonwilds) is checked against the
+build Steam has for its branch, every half hour in the background, which is what sets
+`flags.update_available` on the server. Clients refuse a server on any other build.
+
+| Method | Path                         | Purpose |
+| ------ | ---------------------------- | ------- |
+| GET    | `/servers/{id}/steam/build`  | `{branch, installed, latest, update_available}`. `installed` is the `buildid` in `steamapps/appmanifest_<app>.acf`; `latest` is what SteamCMD's `app_info_print` says for the branch (`release` is Steam's `public`), asked at most every half hour. Requires `CONFIG`. |
+| POST   | `/servers/{id}/steam/build`  | `{warn}` → `{started, warn}`. Updates from Steam in the background: a running Rust server first counts `warn` seconds down in chat (at most 1800), then stops, runs `app_update` with `install` events while `flags.updating` is set, and starts again. A game that reads no commands cannot be warned, so `warn` comes back `0` and it stops at once. `409` while it is already installing or updating; `422` for a server not installed through Steam. Requires `CONFIG`. |
+
+### Enshrouded
+
+The provider `enshrouded` has kind `enshrouded` and one `version`, `release`, Steam's public
+branch. The panel runs `app_update 2278520`. Keen ships the server for Windows only, so on Linux
+SteamCMD is told `+@sSteamCmdForcePlatformType windows` and the server runs under Wine from its
+own folder: `env WINEPREFIX=/config/wine WINEARCH=win64 WINEDEBUG=-all
+WINEDLLOVERRIDES=mscoree,mshtml= wine enshrouded_server.exe`. The install checks Wine is there and
+sets up the prefix once, shared by every Enshrouded server. On Windows the panel runs the exe
+directly.
+
+`port` is the server's one UDP port, `queryPort` in the game's file, 15637 by default. It carries
+the game and the Steam query alike. The query answers the status fields, with `version` taken from
+the build in its keywords, since the version field it sends never changes.
+
+Settings live in `enshrouded_server.json` beside the exe. The install writes it before the first
+start: the panel's port and bind address, the server's name, the four roles the game would make
+(Admin, Friend, Guest, Visitor), each with a password the panel generates, and anything sent in
+`properties`. The catalogue covers every key in Keen's 1.0 readme: `name`, `tags` (the browser's
+own words only, since an unknown tag stops the server starting), `slotCount` (1 to 16), the chat
+switches, `gameSettingsPreset`, and every `gameSettings.*` key with its documented range. Day,
+night and hunger lengths are offered in minutes and written in the nanoseconds the file keeps.
+Setting any `gameSettings.*` key moves the preset to `Custom`, the only preset that reads them,
+unless the same request names a preset. An empty value takes a key out, so the game writes its own
+default back. `queryPort` is managed and follows `PATCH port`.
+
+The game rewrites this file on every start and whenever somebody is banned, so the panel writes
+it only while the server is stopped. `PUT /properties` and the role and ban routes below answer
+`409` otherwise, and `GET /properties` says `stopped_only: true`.
+
+| Method | Path                                    | Purpose |
+| ------ | --------------------------------------- | ------- |
+| GET    | `/servers/{id}/enshrouded/roles`        | `{running, slots, roles: [{name, password, canKickBan, canAccessInventories, canEditWorld, canEditBase, canExtendBase, reservedSlots}]}`: the `userGroups` a player joins under by typing a password. Fields a later version adds come back too, and are kept on a write. Requires `CONFIG`. |
+| PUT    | `/servers/{id}/enshrouded/roles`        | `{roles}` replaces them all. Names and passwords have to be unique, since the password is how the game tells roles apart, and the reserved slots cannot add up to more than `slotCount`. Requires `CONFIG`. |
+| GET    | `/servers/{id}/enshrouded/bans`         | `{running, bans: [{index, name, character, banned_at}]}` from `bannedAccounts`, with `banned_at` in Unix seconds. A ban is made in the game, by a player whose role can kick and ban. Requires `PLAYERS`. |
+| DELETE | `/servers/{id}/enshrouded/bans/{index}` | Lifts one ban by its place in the list. Requires `PLAYERS`. |
+
+Enshrouded reads no commands, so `stop_command` is empty and a stop is Ctrl+C, which saves the
+world before the server exits.
+
+### RuneScape: Dragonwilds
+
+The provider `dragonwilds` has kind `dragonwilds` and one `version`, `release`. The panel runs
+`app_update 4019830` and starts the Unreal binary itself:
+`RSDragonwilds/Binaries/Linux/RSDragonwildsServer-Linux-Shipping RSDragonwilds -log -Port=<port>
+-BeaconPort=<port + 1111>`, with `HOME` at the Steam home so it finds the Steam client library.
+On Windows it is `…/Win64/RSDragonwildsServer-Win64-Shipping.exe` with `-stdout`. Jagex's
+launcher script is skipped, because it does not pass a signal on to the game.
+
+`port` is the game's UDP port, 7777 by default. The world settings beacon takes the port 1111
+above it, so `port` has to be below 64425. Both have to be published on the same numbers inside
+and out. The server answers no query, so who is on comes from its console, and the most is the 6
+the build allows.
+
+Settings live in `RSDragonwilds/Saved/Config/LinuxServer/DedicatedServer.ini` (`WindowsServer` on
+Windows), section `[/Script/Dominion.DedicatedServerSettings]`. The catalogue has `OwnerId`,
+`ServerName`, `DefaultWorldName`, `PlatformPolicy` (`Crossplay`, `PC`, `PlayStation`, `Xbox`,
+`Nintendo`), `WorldPassword` and `AdminPassword`.
+
+- `OwnerId` is the owner's Player ID, 32 hex digits, and the server will not start without it.
+  The provider lists it in `required`, so creating a Dragonwilds server without it answers `422`
+  on `properties.OwnerId`.
+- The install writes the section before the first start. The world is named after the server
+  (letters, digits, spaces, dashes and underscores, 16 at most), and the admin password is
+  generated unless one was sent. The game adds `ServerGuid` itself.
+- `ServerGuid` and the `KnownPlayerList` lines are the game's, and refuse writes.
+- The game reads `AdminPassword` at start and leaves it out when it rewrites the file, so the
+  panel keeps a copy beside it and writes it back before every start, as Jagex's own container
+  does.
+- PvP and difficulty belong to the world's save. The owner sets them in the game.
+- As with Enshrouded, the file is written only while the server is stopped.
+
+The console never shows the world password: the line naming it at start, the session's
+`Password[…]` and the `?p=` of every login request read `********`. Dragonwilds reads no
+commands, and a stop is Ctrl+C. It does not save on the way out; it saves every five minutes and
+whenever a player leaves.
+
+### Players on Enshrouded and Dragonwilds
+
+Neither game has a player list to ask, so the panel writes down who the console says joined and
+left. Enshrouded prints `[server] Player '<name>' logged in` and `[server] Remove Player
+'<name>'`. Dragonwilds prints `Player ADDED to session [<id>]-[<name>]` and `Player Removed from
+session […]`, and the panel keeps its Epic account id. Enshrouded names nobody who timed out, so
+its list is cleared when the query says the server is empty.
+
+| Method | Path                    | Purpose |
+| ------ | ----------------------- | ------- |
+| GET    | `/servers/{id}/roster`  | `{running, count, max, known: [{name, id, first_seen, last_seen, online}]}`, online first. `count` is the query's on Enshrouded and the online rows on Dragonwilds; `max` is 6 on Dragonwilds and the query's slot count on Enshrouded. `422` for other kinds, which have their own players page. Requires `PLAYERS`. |
+
+The Minecraft players, add-on, bridge and Rust routes answer `422` for both games.
+
 The reply is `201 {"id": "…"}` as soon as the row exists. Downloading, unpacking and configuring
 happen after that, reported as `install` events on `server:<id>` and as `install` console lines,
 with SteamCMD's own output beside them as `steamcmd` lines. A
@@ -315,7 +414,7 @@ and `message` adds what the step alone does not say, such as how much of the dow
 
 | Method | Path                             | Purpose                                                                                                        |
 | ------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| GET    | `/providers`                     | `[{id, name, kind, summary, default_port, needs_java}]`. `vanilla`, `paper`, `purpur`, `fabric`, `neoforge`, `bedrock`. |
+| GET    | `/providers`                     | `[{id, name, kind, summary, default_port, needs_java, required}]`. `vanilla`, `paper`, `purpur`, `fabric`, `neoforge`, `bedrock`, `rust`, `enshrouded`, `dragonwilds`. `required` names the settings a server of that kind cannot start without; `POST /servers` refuses to go ahead without them. |
 | GET    | `/providers/{provider}/versions` | `[{id, label, stable}]`, newest first. `503 UNAVAILABLE` when the upstream service cannot be reached.          |
 
 Both require `CREATE_SERVER`. Version lists are fetched from upstream and held for ten minutes.
@@ -351,6 +450,8 @@ Java's, and no add-on ships a picture the panel could find.
 | GET    | `/properties?kind=`          | The catalogue for a kind of server, before one exists. Any signed-in caller.                              |
 | GET    | `/servers/{id}/properties`   | One server's file: `{exists, settings, other}`. Requires `CONFIG`.                                        |
 | PUT    | `/servers/{id}/properties`   | `{settings: {key: value}}`, merged in. Returns `{changed, restart_required}`. Requires `CONFIG`.          |
+
+Rust, Enshrouded and Dragonwilds have no `server.properties`. For them these routes read and write the start command, `enshrouded_server.json` and `DedicatedServer.ini`, as their sections above say. A reply with `stopped_only: true` takes writes only while the server is stopped.
 
 On a read, `settings` is the catalogue with each entry's current `value` and a `set` flag saying
 whether the file names it at all; when `set` is false the server's own default applies. `other` is

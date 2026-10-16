@@ -15,7 +15,7 @@ crustation (single binary)
 ├── stats         host and per-process sampling, server ping, history for charts
 ├── scheduler     cron and interval jobs: start, stop, restart, backup, command
 ├── backups       zip archives with excludes, retention, restore
-├── providers     server downloads: Vanilla, Paper, Purpur, Fabric, NeoForge, Bedrock, and Rust through SteamCMD
+├── providers     server downloads: Vanilla, Paper, Purpur, Fabric, NeoForge, Bedrock, and Rust, Enshrouded and Dragonwilds through SteamCMD
 ├── events        broadcast bus that fans out to WebSocket subscribers
 └── mcp           the same data as tools and resources, for an assistant, behind an API key
 ```
@@ -29,7 +29,10 @@ their stdin/stdout, which keeps the console honest and the deployment a single c
   (`Start | Stop | Restart | Kill | Stdin(String)`), and a state machine
   (`Stopped → Starting → Running → Stopping → Stopped`, plus `Crashed`). Stdout and stderr are read
   line by line into a bounded ring buffer (the console backlog) and published on the event bus. A
-  stop sends the configured stop command, waits `shutdown_timeout`, then escalates to a kill.
+  stop sends the configured stop command, waits `shutdown_timeout`, then escalates to a kill. A
+  server with no stop command, as Enshrouded and Dragonwilds have none, gets Ctrl+C instead. Each
+  server runs in its own process group, so the signal and the kill reach the game behind Wine or a
+  launch script.
   When the panel itself is told to stop, it stops every running server at once and exits after the
   last one, so the container's stop timeout only has to cover the slowest save.
 - **Crash handling.** An exit that was not requested, and whose code is not in `ignored_exits`,
@@ -38,6 +41,11 @@ their stdin/stdout, which keeps the console honest and the deployment a single c
   download from the provider's own API, streams it to disk while checking the published hash,
   unpacks or runs an installer where the flavour needs one, writes `eula.txt` and the port, and
   finally stores the start command.
+- **Steam games.** `steam_games.rs` lists the titles SteamCMD installs: the app id, whether only
+  a Windows build exists, and whether the game reads commands. A Windows-only title is fetched with
+  `+@sSteamCmdForcePlatformType windows` and run under Wine from one prefix in `/config/wine`.
+  Each title then has a module of its own for its start command, its settings file and what its
+  console says when it is ready and when people come and go.
 - **Choosing a JVM.** The providers report what each version asks of Java, and the install picks a
   runtime out of those `java` discovers rather than leaving the command saying `java`. Paper states
   a floor it supports anything above, so it gets the newest installed; Mojang names the runtime a
@@ -87,6 +95,7 @@ These are the three Docker volumes, and the three Unraid mappings.
 ## Deployment
 
 The image is multi-stage: Node builds the interface, Rust builds a static binary, and the runtime
-stage carries the JREs game servers need plus the binary. It runs as a non-root user, takes `PUID`
+stage carries the JREs game servers need, SteamCMD's 32-bit libraries and WineHQ's stable Wine
+for the Windows-only servers, plus the binary. It runs as a non-root user, takes `PUID`
 and `PGID` like other Unraid containers, and stores nothing outside the three volumes.
 `docker/unraid.xml` is the Community Applications template.

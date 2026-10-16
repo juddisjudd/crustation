@@ -37,8 +37,12 @@ fn program(directory: &Path) -> PathBuf {
     })
 }
 
+/// Held while SteamCMD is fetched, since the launcher exists half written while it is unpacked.
+static FETCHING: LazyLock<Mutex<()>> = LazyLock::new(Mutex::default);
+
 /// Returns the SteamCMD launcher, downloading Valve's installer if it is not here yet.
 pub async fn ensure(http: &reqwest::Client, directory: &Path) -> Result<PathBuf> {
+    let _fetching = FETCHING.lock().await;
     let program = program(directory);
     if tokio::fs::try_exists(&program).await.unwrap_or(false) {
         return Ok(program);
@@ -128,15 +132,19 @@ pub async fn app_update(
     target: &Path,
     app_id: u32,
     branch: Option<&str>,
+    windows_only: bool,
 ) -> Result<Running> {
     let turn = ONE_AT_A_TIME.clone().lock_owned().await;
     let mut command = Command::new(program);
     command
         .env("HOME", home)
+        .args(platform_override(windows_only))
         // The install directory has to be named before the login.
         .arg("+force_install_dir")
         .arg(target)
-        .args(["+login", "anonymous", "+app_update"])
+        .args(["+login", "anonymous"])
+        // Without fresh app info a first install can fail with "Missing configuration".
+        .args(["+app_info_update", "1", "+app_update"])
         .arg(app_id.to_string());
     if let Some(branch) = branch.filter(|branch| *branch != "release") {
         command.args(["-beta", branch]);
@@ -163,6 +171,14 @@ pub async fn app_update(
         lines,
         _turn: turn,
     })
+}
+
+/// SteamCMD fetches the build for the system it runs on unless told otherwise, before the login.
+fn platform_override(windows_only: bool) -> &'static [&'static str] {
+    match windows_only && !cfg!(windows) {
+        true => &["+@sSteamCmdForcePlatformType", "windows"],
+        false => &[],
+    }
 }
 
 async fn split_lines<R: AsyncRead + Unpin>(mut reader: R, sender: UnboundedSender<String>) {
@@ -460,6 +476,16 @@ mod tests {
             step_in("[----] Verifying installation...").map(|step| step.percent),
             Some(None)
         );
+    }
+
+    #[test]
+    fn a_windows_only_server_is_asked_for_by_platform_off_windows() {
+        assert!(platform_override(false).is_empty());
+        let asked = platform_override(true);
+        match cfg!(windows) {
+            true => assert!(asked.is_empty()),
+            false => assert_eq!(asked, ["+@sSteamCmdForcePlatformType", "windows"]),
+        }
     }
 
     #[test]

@@ -55,6 +55,18 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Enshrouded ships for Windows only, so it runs under WineHQ's stable Wine, also x86 only.
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        mkdir -pm755 /etc/apt/keyrings \
+        && curl -fsSL https://dl.winehq.org/wine-builds/winehq.key \
+            -o /etc/apt/keyrings/winehq-archive.key \
+        && curl -fsSL https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources \
+            -o /etc/apt/sources.list.d/winehq-noble.sources \
+        && apt-get update \
+        && apt-get install -y --install-recommends winehq-stable \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 COPY --from=panel /src/target/release/crustation /usr/local/bin/crustation
 COPY --from=web /web/build /app/web
 COPY addons /app/addons
@@ -65,6 +77,8 @@ VOLUME ["/config", "/servers", "/backups"]
 EXPOSE 8080
 # Minecraft Java, Bedrock and a range for extra servers, then Rust's game, query and Rust+ ports
 EXPOSE 25565 19132/udp 25500-25600 28015/udp 28017/udp 28083
+# Enshrouded's one port, then Dragonwilds' game port and world settings beacon
+EXPOSE 15637/udp 7777/udp 8888/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
     CMD curl -fsS http://localhost:${CRUSTATION_PORT}/api/v1/health || exit 1

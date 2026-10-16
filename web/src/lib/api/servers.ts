@@ -44,7 +44,7 @@ export function enableRcon(serverId: string) {
 }
 
 export interface PortReport {
-	name: 'game' | 'query' | 'rust_plus';
+	name: 'game' | 'query' | 'rust_plus' | 'beacon';
 	port: number;
 	protocol: 'tcp' | 'udp';
 	/** Null when the panel could not tell. */

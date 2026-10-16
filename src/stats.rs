@@ -24,6 +24,7 @@ pub async fn collect(state: AppState) {
         // Every server is asked, not only the ones the panel started, so a server
         // somebody else launched on that port still shows up.
         let players = ping_all(&state).await;
+        let counted = counted_from_console(&state).await;
 
         let running = state.supervisor.running_ids().await;
         if running.is_empty() {
@@ -57,8 +58,13 @@ pub async fn collect(state: AppState) {
             let at = Utc::now();
 
             let seen = players.get(&id);
-            let online = seen.map(|status| status.players_online);
-            let max = seen.map(|status| status.players_max);
+            let counted = counted.get(&id);
+            let online = seen
+                .map(|status| status.players_online)
+                .or(counted.map(|(online, _)| *online));
+            let max = seen
+                .map(|status| status.players_max)
+                .or(counted.map(|(_, max)| *max));
 
             let result = sqlx::query(
                 "INSERT OR REPLACE INTO server_stats
@@ -104,6 +110,34 @@ pub async fn collect(state: AppState) {
             prune(&state).await;
         }
     }
+}
+
+/// The games whose console says who comes and goes, which is how the panel knows names.
+pub fn counts_from_console(kind: &str) -> bool {
+    kind == crate::enshrouded::KIND || kind == crate::dragonwilds::KIND
+}
+
+/// The cap a game with no query to ask is built with.
+pub fn players_max(kind: &str) -> Option<i64> {
+    (kind == crate::dragonwilds::KIND).then_some(crate::dragonwilds::MAX_PLAYERS)
+}
+
+/// Online and most players for the servers no query answers for, from the console's arrivals.
+async fn counted_from_console(state: &AppState) -> HashMap<Uuid, (i64, i64)> {
+    let rows: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT s.id, s.kind,
+                (SELECT COUNT(*) FROM server_players p WHERE p.server_id = s.id AND p.online = 1)
+         FROM servers s",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    rows.into_iter()
+        .filter_map(|(id, kind, online)| {
+            let max = players_max(&kind)?;
+            Some((Uuid::parse_str(&id).ok()?, (online, max)))
+        })
+        .collect()
 }
 
 /// Asks every configured server what it is, all at once so one slow reply does
@@ -158,6 +192,17 @@ async fn remember_players(state: &AppState, id: Uuid, kind: &str, status: &crate
             },
         };
         crate::rust_players::remember(&state.db, id, &online).await;
+        return;
+    }
+    // Enshrouded names nobody who timed out, so an empty server is the only sure word.
+    if kind == crate::enshrouded::KIND {
+        if status.players_online == 0 {
+            sqlx::query("UPDATE server_players SET online = 0 WHERE server_id = ?")
+                .bind(id.to_string())
+                .execute(&state.db)
+                .await
+                .ok();
+        }
         return;
     }
     // A Bedrock pong carries counts and never names, so there is nothing here to

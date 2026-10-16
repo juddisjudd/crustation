@@ -22,6 +22,8 @@ enum Ask {
     Connect,
     Raknet,
     Source,
+    /// Nothing a player's client says can be imitated, so only the socket table can tell.
+    Nothing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +63,15 @@ pub fn ports(kind: &str, port: i64, command: &str) -> Vec<Port> {
                     Ask::Source,
                 ),
                 named("rust_plus", app, Protocol::Tcp, Ask::Connect),
+            ]
+        }
+        crate::enshrouded::KIND => vec![named("game", port, Protocol::Udp, Ask::Source)],
+        crate::dragonwilds::KIND => {
+            let beacon = crate::dragonwilds::beacon_in(command)
+                .unwrap_or_else(|| crate::dragonwilds::beacon_port(port));
+            vec![
+                named("game", port, Protocol::Udp, Ask::Nothing),
+                named("beacon", beacon, Protocol::Udp, Ask::Nothing),
             ]
         }
         "minecraft_bedrock" => vec![named("game", port, Protocol::Udp, Ask::Raknet)],
@@ -147,6 +158,7 @@ async fn answers(ask: Ask, host: &str, port: u16, within: Duration) -> bool {
             Ask::Connect => TcpStream::connect((host, port)).await.is_ok(),
             Ask::Raknet => ping::raknet_pong(host, port).await.is_ok(),
             Ask::Source => ping::source(host, port).await.is_ok(),
+            Ask::Nothing => false,
         }
     };
     tokio::time::timeout(within, asked).await.unwrap_or(false)
@@ -288,6 +300,23 @@ mod tests {
             .iter()
             .map(|port| (port.name, port.port, port.protocol))
             .collect()
+    }
+
+    #[test]
+    fn enshrouded_takes_one_port_and_dragonwilds_two() {
+        assert_eq!(
+            named(&ports("enshrouded", 15637, "")),
+            [("game", 15637, Protocol::Udp)]
+        );
+        let command = "./server RSDragonwilds -log -Port=7777 -BeaconPort=9000";
+        assert_eq!(
+            named(&ports("dragonwilds", 7777, command)),
+            [
+                ("game", 7777, Protocol::Udp),
+                ("beacon", 9000, Protocol::Udp)
+            ]
+        );
+        assert_eq!(named(&ports("dragonwilds", 7777, ""))[1].1, 8888);
     }
 
     #[test]

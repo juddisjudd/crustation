@@ -1,4 +1,4 @@
-//! Schedules: start, stop, restart and commands on a timer, and Rust's wipes and updates.
+//! Schedules: start, stop, restart and commands on a timer, Steam updates, and Rust's wipes.
 
 use std::time::Duration;
 
@@ -106,14 +106,20 @@ pub fn check(trigger: &Trigger, action: &Action, kind: &str) -> std::result::Res
         return Err("Give players half an hour's warning at the most.".into());
     }
     match action {
+        Action::Command { .. } if !crate::steam_games::takes_commands(kind) => {
+            Err("This game takes no commands.".into())
+        }
         Action::Command { command } if command.trim().is_empty() => {
             Err("Say which command to run.".into())
         }
         Action::Command { command } if command.chars().any(char::is_control) => {
             Err("A command is one line.".into())
         }
-        Action::Wipe { .. } | Action::Update { .. } if kind != crate::rust_game::KIND => {
-            Err("Wipes and Steam updates are for Rust servers.".into())
+        Action::Wipe { .. } if kind != crate::rust_game::KIND => {
+            Err("Wipes are for Rust servers.".into())
+        }
+        Action::Update { .. } if !crate::steam_games::is_steam(kind) => {
+            Err("Steam updates are for games installed through Steam.".into())
         }
         _ => Ok(()),
     }
@@ -226,13 +232,13 @@ async fn perform(state: &AppState, id: Uuid, action: &Action) -> Result<String> 
         }
         Action::Stop { .. } if !live => Ok("Already stopped.".into()),
         Action::Stop { warn_seconds } => {
-            crate::rust_updates::countdown(state, id, *warn_seconds, "stops").await;
+            countdown(state, id, *warn_seconds, "stops").await;
             state.supervisor.stop(id).await?;
             Ok("Stopped.".into())
         }
         Action::Restart { warn_seconds } => {
             if live {
-                crate::rust_updates::countdown(state, id, *warn_seconds, "restarts").await;
+                countdown(state, id, *warn_seconds, "restarts").await;
             }
             state.supervisor.restart(id).await?;
             Ok("Restarted.".into())
@@ -251,7 +257,7 @@ async fn perform(state: &AppState, id: Uuid, action: &Action) -> Result<String> 
             warn_seconds,
         } => {
             if live {
-                crate::rust_updates::countdown(state, id, *warn_seconds, "wipes").await;
+                countdown(state, id, *warn_seconds, "wipes").await;
                 state.supervisor.stop(id).await?;
             }
             let (deleted, seed) =
@@ -268,15 +274,16 @@ async fn perform(state: &AppState, id: Uuid, action: &Action) -> Result<String> 
             warn_seconds,
             only_if_newer,
         } => {
-            let (directory, branch): (String, Option<String>) =
-                sqlx::query_as("SELECT directory, provider_version FROM servers WHERE id = ?")
-                    .bind(id.to_string())
-                    .fetch_one(&state.db)
-                    .await?;
+            let (kind, directory, branch): (String, String, Option<String>) = sqlx::query_as(
+                "SELECT kind, directory, provider_version FROM servers WHERE id = ?",
+            )
+            .bind(id.to_string())
+            .fetch_one(&state.db)
+            .await?;
             let branch = branch.unwrap_or_default();
             let directory = std::path::PathBuf::from(directory);
             if *only_if_newer {
-                let build = crate::rust_updates::check(state, &directory, &branch).await?;
+                let build = crate::steam_updates::check(state, &kind, &directory, &branch).await?;
                 if !build.update_available {
                     return Ok("Already on the newest build.".into());
                 }
@@ -285,10 +292,49 @@ async fn perform(state: &AppState, id: Uuid, action: &Action) -> Result<String> 
             if runtime.installing || runtime.updating {
                 bail!("the server is already being installed or updated");
             }
-            crate::rust_updates::spawn_update(state.clone(), id, directory, branch, *warn_seconds);
+            crate::steam_updates::spawn_update(
+                state.clone(),
+                id,
+                kind,
+                directory,
+                branch,
+                *warn_seconds,
+            );
             Ok("Updating from Steam.".into())
         }
     }
+}
+
+/// Counts down in chat, as in "The server restarts in a minute", then at one minute and ten seconds.
+pub async fn countdown(state: &AppState, id: Uuid, seconds: u64, what: &str) {
+    let kind: String = sqlx::query_scalar("SELECT kind FROM servers WHERE id = ?")
+        .bind(id.to_string())
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or_default();
+    // A game that takes no commands cannot be told, so waiting would only delay it.
+    if !crate::steam_games::takes_commands(&kind) {
+        return;
+    }
+    let mut marks = vec![seconds, 60, 10];
+    marks.retain(|mark| *mark > 0 && *mark <= seconds);
+    marks.dedup();
+    let mut left = seconds;
+    for mark in marks {
+        tokio::time::sleep(Duration::from_secs(left - mark)).await;
+        left = mark;
+        let when = match mark.div_ceil(60) {
+            _ if mark < 60 => format!("in {mark} seconds"),
+            1 => "in a minute".to_string(),
+            minutes => format!("in {minutes} minutes"),
+        };
+        let message = match what.split_once(' ') {
+            Some((verb, reason)) => format!("say The server {verb} {when} {reason}."),
+            None => format!("say The server {what} {when}."),
+        };
+        state.supervisor.run_command(id, &message).await.ok();
+    }
+    tokio::time::sleep(Duration::from_secs(left)).await;
 }
 
 #[cfg(test)]

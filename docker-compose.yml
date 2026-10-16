@@ -16,6 +16,11 @@ services:
       - "28015:28015/udp"
       - "28017:28017/udp"
       - "28083:28083"
+      # Enshrouded: one port for the game and the server list.
+      - "15637:15637/udp"
+      # Dragonwilds: the game, then the world settings beacon, each on the same number inside and out.
+      - "7777:7777/udp"
+      - "8888:8888/udp"
     environment:
       PUID: 1000
       PGID: 1000

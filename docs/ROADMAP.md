@@ -181,6 +181,24 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
   public address, so a forwarded port answers the way it would for a player. Silence only reads
   as closed once something has answered that way, since a router that does not loop traffic back
   looks the same as a closed port.
+- Enshrouded and RuneScape: Dragonwilds, the second and third games through SteamCMD, which proved
+  the Steam install, the Source query and the update check general: one list of Steam titles now
+  says what each one is, and the updates card, the update schedule and `/steam/build` serve all
+  three. Enshrouded ships for Windows only, so on Linux SteamCMD fetches the Windows build and the
+  image carries WineHQ's stable Wine to run it; Dragonwilds runs its own Linux binary. Each is
+  configured by its own file (`enshrouded_server.json`, `DedicatedServer.ini`), written at
+  creation and edited from the settings tab while the server is stopped, since both games rewrite
+  it while they run. Enshrouded's every 1.0 game setting is offered with its range, its roles and
+  their join passwords have an editor on the players tab, and its bans can be lifted there.
+  Dragonwilds will not start without the owner's Player ID, so the form asks for it up front, and
+  its console has the world password taken out of every line that prints it.
+- Neither game reads a command, so the console is read-only for them and a stop is Ctrl+C, sent to
+  the server's own process group so it reaches the game behind Wine. Enshrouded saves on the way
+  out; Dragonwilds saves every five minutes and when a player leaves. Who is on comes from the
+  join and leave lines each prints.
+- Two first-time SteamCMD installs at once no longer trip over each other fetching SteamCMD, and
+  every install asks Steam for fresh app info first, which stops Dragonwilds' "Missing
+  configuration" failure.
 
 ## Next
 
@@ -228,6 +246,8 @@ Unblocked by the list above, and most of what makes the panel feel finished:
   `backups` table and the volume stay where they are for whenever it is.
 - Two-factor authentication and passkeys (the schema already has a place for them).
 - A Docker backend for the supervisor, so each game server can run in its own container.
-- Non-Minecraft games: Hytale, and SteamCMD titles beyond Rust. Rust itself is in; the SteamCMD
-  install and the Source query are generic and wait for a second game to prove it.
+- Non-Minecraft games: Hytale. Rust, Enshrouded and RuneScape: Dragonwilds are in, and another
+  SteamCMD title is an entry in `steam_games.rs` plus its own module.
+- A graceful stop for Enshrouded and Dragonwilds on a Windows host. Ctrl+C reaches them on Linux;
+  on Windows the stop still waits out the timeout and ends the process.
 - Multi-node: one panel, several machines.

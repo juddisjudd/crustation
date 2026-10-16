@@ -6,9 +6,10 @@
 	import { Spinner } from '$lib/components/ui/spinner/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
-	import { rustBuild, updateRust, type RustBuild } from '$lib/api/rust';
+	import { steamBuild, updateFromSteam, type SteamBuild } from '$lib/api/steam';
 	import { errorMessage } from '$lib/api/servers';
 	import type { Server } from '$lib/api/types';
+	import { takesCommands } from '$lib/format';
 	import { servers } from '$lib/servers.svelte';
 	import { t, type MessageKey } from '$lib/i18n/index.svelte';
 
@@ -23,8 +24,10 @@
 
 	const live = $derived(servers.isLive(server.id));
 	const busy = $derived(server.flags.installing || server.flags.updating);
+	// A game that reads no commands cannot be told to warn anybody.
+	const canWarn = $derived(live && takesCommands(server.kind));
 
-	let build = $state.raw<RustBuild | null>(null);
+	let build = $state.raw<SteamBuild | null>(null);
 	let checking = $state(true);
 	let warn = $state('300');
 	let starting = $state(false);
@@ -36,7 +39,7 @@
 		const id = server.id;
 		void server.flags.updating;
 		checking = true;
-		rustBuild(id)
+		steamBuild(id)
 			.then((found) => (build = found))
 			.catch(() => (build = null))
 			.finally(() => (checking = false));
@@ -45,9 +48,13 @@
 	async function update() {
 		starting = true;
 		try {
-			await updateRust(server.id, live ? Number(warn) : 0);
+			await updateFromSteam(server.id, canWarn ? Number(warn) : 0);
 			toast.success(t('server.updates.started', { name: server.name }), {
-				description: live ? t('server.updates.startedRunning') : undefined
+				description: canWarn
+					? t('server.updates.startedRunning')
+					: live
+						? t('server.updates.startedSilent')
+						: undefined
 			});
 		} catch (err) {
 			toast.error(t('server.updates.failed'), { description: errorMessage(err) });
@@ -91,7 +98,7 @@
 			</div>
 		</dl>
 		<div class="flex flex-wrap items-center gap-2">
-			{#if live}
+			{#if canWarn}
 				<Select.Root type="single" bind:value={warn}>
 					<Select.Trigger class="w-36" aria-label={t('server.updates.warn')}>
 						{warningLabel(WARNINGS.find(([, seconds]) => String(seconds) === warn)?.[0] ?? 'none')}

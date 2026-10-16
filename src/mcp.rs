@@ -228,7 +228,7 @@ fn refused(error: ApiError) -> ErrorData {
 pub struct Summary {
     id: String,
     name: String,
-    /// `minecraft_java` or `minecraft_bedrock`.
+    /// `minecraft_java`, `minecraft_bedrock`, `rust`, `enshrouded` or `dragonwilds`.
     kind: String,
     /// `stopped`, `starting`, `running`, `stopping` or `crashed`.
     state: String,
@@ -502,8 +502,8 @@ impl Crustation {
         Ok(Json(self.properties_of(&row).await?))
     }
 
-    /// Changes one key in `server.properties`, or one start-up setting on a Rust
-    /// server. The value is checked against the catalogue for that edition first,
+    /// Changes one key in `server.properties`, a Rust start-up setting, or a key in the
+    /// Enshrouded or Dragonwilds settings file. The value is checked against the catalogue first,
     /// and the keys the panel writes itself are refused. Either is read once, at
     /// startup, so the server has to be restarted for it to take. Needs the
     /// CONFIG permission.
@@ -527,6 +527,14 @@ impl Crustation {
             )
             .await
             .map_err(refused)?;
+            return Ok(Json(answer));
+        }
+        if row.kind == crate::enshrouded::KIND || row.kind == crate::dragonwilds::KIND {
+            let change = [(key, serde_json::Value::String(value))].into();
+            let crate::error::Ok(answer) =
+                crate::api::properties::write_game_file(&self.state, who, &row, change)
+                    .await
+                    .map_err(refused)?;
             return Ok(Json(answer));
         }
         if crate::properties::is_reserved(&key) {
@@ -789,7 +797,36 @@ impl Crustation {
                 .into_iter()
                 .collect());
         }
-        let path = crate::properties::path_in(&PathBuf::from(&row.directory));
+        let directory = PathBuf::from(&row.directory);
+        if row.kind == crate::enshrouded::KIND {
+            let config = crate::enshrouded::load(&directory)
+                .await
+                .map_err(internal)?
+                .unwrap_or_default();
+            let mut out: std::collections::BTreeMap<String, String> = crate::enshrouded::CATALOGUE
+                .iter()
+                .filter_map(|entry| {
+                    Some((
+                        entry.key.to_string(),
+                        crate::enshrouded::shown(&config, entry.key)?,
+                    ))
+                })
+                .collect();
+            out.extend(crate::enshrouded::others(&config));
+            return Ok(out);
+        }
+        if row.kind == crate::dragonwilds::KIND {
+            let ini = crate::dragonwilds::load_with_admin(&directory)
+                .await
+                .map_err(internal)?
+                .unwrap_or_default();
+            return Ok(ini
+                .entries(crate::dragonwilds::SECTION)
+                .into_iter()
+                .filter(|(key, _)| !crate::dragonwilds::is_managed(key) || key == "ServerGuid")
+                .collect());
+        }
+        let path = crate::properties::path_in(&directory);
         Ok(crate::properties::Properties::load_if_present(&path)
             .await
             .map_err(internal)?

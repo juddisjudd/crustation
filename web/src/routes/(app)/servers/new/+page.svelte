@@ -43,12 +43,14 @@
 
 	let { data } = $props();
 
-	type Game = 'minecraft' | 'rust';
+	type Game = 'minecraft' | 'rust' | 'enshrouded' | 'dragonwilds';
 	const games: { id: Game; name: string }[] = [
 		{ id: 'minecraft', name: 'Minecraft' },
-		{ id: 'rust', name: 'Rust' }
+		{ id: 'rust', name: 'Rust' },
+		{ id: 'enshrouded', name: 'Enshrouded' },
+		{ id: 'dragonwilds', name: 'RuneScape: Dragonwilds' }
 	];
-	const gameOf = (kind: string): Game => (isMinecraft(kind) ? 'minecraft' : 'rust');
+	const gameOf = (kind: string): Game => (isMinecraft(kind) ? 'minecraft' : (kind as Game));
 
 	// Nothing is chosen until the operator says so; the rest of the form follows from it.
 	let game = $state<Game | null>(null);
@@ -140,6 +142,23 @@
 				: 25565
 	);
 	const shown = $derived(showUnstable ? versions : versions.filter((entry) => entry.stable));
+	// Steam lists Enshrouded and Dragonwilds on one branch, so there is nothing to choose.
+	const oneBranch = $derived(game === 'enshrouded' || game === 'dragonwilds');
+	const required = $derived(
+		tab === 'install' ? catalogue.filter((entry) => provider?.required.includes(entry.key)) : []
+	);
+	const optional = $derived(
+		catalogue.filter((entry) => !required.some((needed) => needed.key === entry.key))
+	);
+	const portHint = $derived(
+		(
+			{
+				rust: 'create.details.portRust',
+				enshrouded: 'create.details.portEnshrouded',
+				dragonwilds: 'create.details.portDragonwilds'
+			} as Record<string, MessageKey>
+		)[kind]
+	);
 	const versionLabel = $derived(
 		shown.find((entry) => entry.id === version)?.label ?? t('create.source.versionPlaceholder')
 	);
@@ -150,7 +169,7 @@
 
 	const groups = $derived.by(() => {
 		const out: { name: string; items: KnownProperty[] }[] = [];
-		for (const entry of catalogue) {
+		for (const entry of optional) {
 			let group = out.find((candidate) => candidate.name === entry.group);
 			if (!group) out.push((group = { name: entry.group, items: [] }));
 			group.items.push(entry);
@@ -170,6 +189,7 @@
 
 	const ready = $derived.by(() => {
 		if (!game || !name.trim() || (needsEula && !eula)) return false;
+		if (required.some((entry) => !settings[entry.key]?.trim())) return false;
 		if (tab === 'install') return !!version;
 		if (importMode === 'zip') return !!uploadId;
 		if (importMode === 'folder') return !!folderPath.trim();
@@ -388,7 +408,11 @@
 			{#if game}
 				<section class="space-y-5 rounded-lg border bg-card p-6">
 					<h2 class="text-base font-semibold tracking-tight">
-						{game === 'minecraft' ? t('create.type.title') : t('create.source.branch')}
+						{game === 'minecraft'
+							? t('create.type.title')
+							: oneBranch
+								? (provider?.name ?? '')
+								: t('create.source.branch')}
 					</h2>
 
 					{#if game === 'minecraft'}
@@ -412,7 +436,12 @@
 						</RadioGroup.Root>
 					{/if}
 
-					{#if tab === 'install'}
+					{#if tab === 'install' && oneBranch}
+						<div class="space-y-2 text-sm">
+							<p>{provider?.summary}</p>
+							<p class="text-muted-foreground">{t('create.source.publicBranch')}</p>
+						</div>
+					{:else if tab === 'install'}
 						<div class="space-y-4">
 							<Field.Field>
 								<Field.Label for="version" class={game === 'rust' ? 'sr-only' : undefined}>
@@ -597,9 +626,38 @@
 								}}
 								class="tabular-nums"
 							/>
-							{#if fieldErrors.port}<Field.Error>{fieldErrors.port}</Field.Error>{/if}
+							{#if fieldErrors.port}
+								<Field.Error>{fieldErrors.port}</Field.Error>
+							{:else if portHint}
+								<Field.Description>
+									{t(portHint, {
+										port: (port ?? defaultPort) + (kind === 'dragonwilds' ? 1111 : 0)
+									})}
+								</Field.Description>
+							{/if}
 						</Field.Field>
 					</div>
+
+					{#each required as entry (entry.key)}
+						{@const invalid = !!fieldErrors[`properties.${entry.key}`]}
+						<Field.Field data-invalid={invalid}>
+							<Field.Label for={entry.key}>{entry.label}</Field.Label>
+							<Input
+								id={entry.key}
+								value={settings[entry.key] ?? ''}
+								oninput={(event) => (settings[entry.key] = event.currentTarget.value)}
+								class="font-mono"
+								autocomplete="off"
+								spellcheck={false}
+								required
+							/>
+							{#if invalid}
+								<Field.Error>{fieldErrors[`properties.${entry.key}`]}</Field.Error>
+							{:else if entry.help}
+								<Field.Description>{entry.help}</Field.Description>
+							{/if}
+						</Field.Field>
+					{/each}
 
 					{#if needsJava}
 						<div class="grid gap-4 sm:grid-cols-2">
@@ -684,7 +742,7 @@
 					{/if}
 				</section>
 
-				{#if catalogue.length || catalogueFailed}
+				{#if optional.length || catalogueFailed}
 					<section class="space-y-4 rounded-lg border bg-card p-6 xl:col-span-2">
 						<h2 class="text-base font-semibold tracking-tight">{t('create.properties.title')}</h2>
 

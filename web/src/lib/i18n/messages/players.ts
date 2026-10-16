@@ -190,5 +190,55 @@ export const players = {
 	removed: 'Removed {name}',
 	empty: 'Nothing on this list.',
 	loadFailed: 'Could not read the player lists.',
-	failed: 'That did not work'
+	failed: 'That did not work',
+	steam: {
+		fromConsole: 'Read from what the server prints as people join and leave.',
+		fromConsoleEnshrouded:
+			'Read from what the server prints as people join and leave. A player who times out is only marked off once the server is empty.',
+		countDiffers: 'The server counts a different number on now, which it knows best.',
+		stopFirst: 'Stop the server to change this. The game rewrites its settings file while it runs.',
+		roles: {
+			title: 'Roles',
+			hint: 'Players join by typing a role password, and get that role. Each role needs its own password.',
+			add: 'Add role',
+			newName: 'Role {count}',
+			name: 'Name',
+			password: 'Password',
+			newPassword: 'Make a new password',
+			reserved: 'Reserved slots',
+			remove: 'Remove',
+			removeTitle: 'Remove {name}?',
+			removeBody:
+				'Players who join with its password will no longer get in. Save to make it final.',
+			none: 'No roles, so nobody can join.',
+			saved: 'Roles saved. They take effect the next time the server starts.',
+			saveFailed: 'Could not save the roles',
+			loadFailed: 'Could not read the roles from enshrouded_server.json.',
+			permissions: {
+				canKickBan: 'Kick and ban',
+				canAccessInventories: 'Open other chests',
+				canEditWorld: 'Change the world',
+				canEditBase: 'Build in bases',
+				canExtendBase: 'Extend bases'
+			}
+		},
+		bans: {
+			title: 'Banned',
+			hint: 'A player with the kick and ban permission bans from the game. Bans can be lifted here.',
+			none: 'Nobody is banned.',
+			someone: 'Someone',
+			lift: 'Lift',
+			liftTitle: 'Lift the ban on {name}?',
+			liftBody: 'They can join again the next time the server starts.',
+			lifted: 'Lifted the ban on {name}',
+			liftFailed: 'Could not lift the ban'
+		},
+		dragonwilds: {
+			title: 'Owner and admins',
+			owner:
+				'The owner, named by the Player ID in the settings, can ban and unban anyone and change the world from the game.',
+			admins:
+				'Anyone who types the admin password in the game, under Settings and then Server Management, can kick and ban. To take that away, change the password in the settings and restart.'
+		}
+	}
 } as const;

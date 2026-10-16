@@ -130,7 +130,7 @@ async fn switch(
             "Oxide and Carbon are installed for the Linux server only.",
         ));
     }
-    crate::rust_updates::spawn_framework(
+    crate::rust_frameworks::spawn_framework(
         state.clone(),
         id,
         PathBuf::from(&row.directory),

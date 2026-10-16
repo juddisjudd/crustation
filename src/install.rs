@@ -14,7 +14,7 @@ use crate::properties::{self, Properties};
 use crate::providers::{self, Artifact, JavaHint, Layout};
 use crate::state::AppState;
 use crate::supervisor::Flag;
-use crate::{rust_game, steam};
+use crate::{dragonwilds, enshrouded, rust_game, steam, steam_games, wine};
 
 /// Where the files for a new server come from.
 pub enum Source {
@@ -46,6 +46,7 @@ pub struct Job {
     pub kind: String,
     pub directory: PathBuf,
     pub source: Source,
+    pub host: String,
     pub port: i64,
     pub java_binary: Option<String>,
     pub min_memory_mb: i64,
@@ -234,9 +235,9 @@ async fn run(state: &AppState, job: &Job) -> Result<Installed> {
     configure(state, job).await?;
 
     Ok(Installed {
-        command: match job.kind.as_str() {
-            rust_game::KIND => rust_command(state, job),
-            _ => start_command(job, &runtime, &placed.executable, &placed.layout),
+        command: match steam_command(state, job) {
+            Some(command) => command,
+            None => start_command(job, &runtime, &placed.executable, &placed.layout),
         },
         executable: placed.executable,
         provider: placed.provider,
@@ -424,7 +425,7 @@ async fn place(state: &AppState, job: &Job, artifact: &Artifact) -> Result<Strin
                 directory: &job.directory,
             };
             steam_install(state, target, *app_id, branch.as_deref(), executable).await?;
-            make_executable(&job.directory.join(executable)).await;
+            ready_to_run(state, job.id, &job.kind, &job.directory).await?;
             Ok(executable.clone())
         }
         Layout::Installer { neoforge_version } => {
@@ -608,11 +609,13 @@ async fn run_steamcmd(
     app_id: u32,
     branch: Option<&str>,
 ) -> Result<()> {
-    let what = match job.kind {
-        rust_game::KIND => "Rust server",
-        _ => "Server",
-    };
-    let mut running = steam::app_update(program, home, target, app_id, branch).await?;
+    let title = steam_games::find(job.kind);
+    let what = title.map_or("Server".to_string(), |title| {
+        format!("{} server", title.name)
+    });
+    let windows_only = title.is_some_and(|title| title.windows_only);
+    let mut running =
+        steam::app_update(program, home, target, app_id, branch, windows_only).await?;
     let mut shown = "";
     let mut last = Instant::now();
     while let Some(line) = running.lines.recv().await {
@@ -633,7 +636,7 @@ async fn run_steamcmd(
                 job.id,
                 step.phase,
                 Some(steam_bar(&step)),
-                &steam_detail(&step, what),
+                &steam_detail(&step, &what),
             );
         }
     }
@@ -675,22 +678,44 @@ fn steam_detail(step: &steam::Step, what: &str) -> String {
     }
 }
 
-/// Brings an installed Rust server up to the newest build on its branch.
+/// Brings an installed Steam server up to the newest build on its branch.
 pub async fn update_from_steam(
     state: &AppState,
     id: Uuid,
+    kind: &str,
     directory: &Path,
     branch: Option<&str>,
 ) -> Result<()> {
+    let title = steam_games::find(kind).context("only a Steam game can be updated from Steam")?;
+    let executable = steam_games::executable(kind).unwrap_or_default();
     let target = SteamTarget {
         id,
-        kind: rust_game::KIND,
+        kind,
         directory,
     };
-    let executable = rust_game::executable();
-    steam_install(state, target, rust_game::APP_ID, branch, executable).await?;
-    make_executable(&directory.join(executable)).await;
+    steam_install(state, target, title.app_id, branch, executable).await?;
+    ready_to_run(state, id, kind, directory).await?;
     progress(state, id, "done", Some(100.0), "");
+    Ok(())
+}
+
+/// What a Steam server needs after SteamCMD before it can start: execute bits, and Wine set up.
+async fn ready_to_run(state: &AppState, id: Uuid, kind: &str, directory: &Path) -> Result<()> {
+    if let Some(executable) = steam_games::executable(kind) {
+        make_executable(&directory.join(executable)).await;
+    }
+    if kind == dragonwilds::KIND {
+        for helper in dragonwilds::helpers() {
+            make_executable(&directory.join(helper)).await;
+        }
+    }
+    let windows_only = steam_games::find(kind).is_some_and(|title| title.windows_only);
+    if windows_only && !cfg!(windows) {
+        progress(state, id, "configuring", Some(95.0), "Setting up Wine.");
+        let prefix = wine::prefix(&absolute(&state.config.paths.config));
+        let version = wine::prepare(&prefix).await?;
+        log(state, id, format!("Running under {version}.")).await;
+    }
     Ok(())
 }
 
@@ -705,16 +730,24 @@ fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-fn rust_command(state: &AppState, job: &Job) -> String {
-    let home = steam::home(&absolute(&state.config.paths.config));
-    rust_game::start_command(
-        &job.directory,
-        &home,
-        &job.name,
-        job.port,
-        &job.properties,
-        &crate::rcon::generate_password(),
-    )
+/// Steam games each have their own way of being started; `None` for everything else.
+fn steam_command(state: &AppState, job: &Job) -> Option<String> {
+    let config = absolute(&state.config.paths.config);
+    let home = steam::home(&config);
+    let directory = absolute(&job.directory);
+    Some(match job.kind.as_str() {
+        rust_game::KIND => rust_game::start_command(
+            &job.directory,
+            &home,
+            &job.name,
+            job.port,
+            &job.properties,
+            &crate::rcon::generate_password(),
+        ),
+        enshrouded::KIND => enshrouded::start_command(&directory, &wine::prefix(&config)),
+        dragonwilds::KIND => dragonwilds::start_command(&directory, &home, job.port),
+        _ => return None,
+    })
 }
 
 /// NeoForge ships an installer rather than a server, so it has to be run once.
@@ -780,9 +813,27 @@ fn start_command(job: &Job, runtime: &Runtime, executable: &str, layout: &Layout
 /// Accepts the EULA, applies the settings that were asked for, and points the
 /// server at the port it was created with.
 async fn configure(state: &AppState, job: &Job) -> Result<()> {
-    // Rust has no settings file; what was asked for is already in the start command.
-    if job.kind == rust_game::KIND {
-        return Ok(());
+    match job.kind.as_str() {
+        // Rust has no settings file; what was asked for is already in the start command.
+        rust_game::KIND => return Ok(()),
+        enshrouded::KIND => {
+            enshrouded::configure(
+                &job.directory,
+                &job.name,
+                job.port,
+                &job.host,
+                &job.properties,
+            )
+            .await?;
+            log(state, job.id, format!("Wrote {}.", enshrouded::CONFIG_FILE)).await;
+            return Ok(());
+        }
+        dragonwilds::KIND => {
+            dragonwilds::configure(&job.directory, &job.name, &job.properties).await?;
+            log(state, job.id, "Wrote DedicatedServer.ini.".into()).await;
+            return Ok(());
+        }
+        _ => {}
     }
 
     if job.kind == "minecraft_java" && job.agree_to_eula {
@@ -942,6 +993,7 @@ mod tests {
                 provider: "paper".into(),
                 version: "1.21.11".into(),
             },
+            host: "0.0.0.0".into(),
             port: 25565,
             java_binary: None,
             min_memory_mb: 1024,

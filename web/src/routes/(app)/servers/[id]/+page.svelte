@@ -9,13 +9,14 @@
 	import MotdEditor from '$lib/components/motd-editor.svelte';
 	import NetworkCard from '$lib/components/servers/network-card.svelte';
 	import RustHealthCard from '$lib/components/servers/rust-health-card.svelte';
-	import RustUpdatesCard from '$lib/components/servers/rust-updates-card.svelte';
+	import SteamUpdatesCard from '$lib/components/servers/steam-updates-card.svelte';
 	import { servers, statusLabel } from '$lib/servers.svelte';
 	import {
 		bytes,
 		dateTime,
 		duration,
 		isMinecraft,
+		isSteam,
 		kindLabel,
 		parseTime,
 		percent
@@ -32,7 +33,12 @@
 	const edition = $derived(server.kind === 'minecraft_bedrock' ? 'bedrock' : 'java');
 	const minecraft = $derived(isMinecraft(server.kind));
 	const rust = $derived(server.kind === 'rust');
+	const enshrouded = $derived(server.kind === 'enshrouded');
+	const dragonwilds = $derived(server.kind === 'dragonwilds');
 	const convars = $derived(server.settings.convars ?? {});
+	const game = $derived(server.settings.game ?? {});
+	const yesNo = (value: string | undefined) =>
+		value === 'true' ? t('common.state.yes') : t('common.state.no');
 	const frameworkLabel = $derived(
 		t(`server.overview.rust.frameworks.${server.settings.framework ?? 'none'}`)
 	);
@@ -41,7 +47,9 @@
 			? location.hostname
 			: server.address.host
 	);
-	const connectCommand = $derived(`client.connect ${host}:${server.address.port}`);
+	const connectCommand = $derived(
+		rust ? `client.connect ${host}:${server.address.port}` : `${host}:${server.address.port}`
+	);
 	let connectCopied = $state(false);
 
 	async function copyConnect() {
@@ -225,6 +233,68 @@
 								</div>
 							{/if}
 						{/if}
+						{#if enshrouded}
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.listName')}</dt>
+								<dd class="mt-1 truncate" title={game.name}>{game.name ?? server.name}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.slots')}</dt>
+								<dd class="mt-1 tabular-nums">{game.slotCount ?? '16'}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.preset')}</dt>
+								<dd class="mt-1">{game.gameSettingsPreset ?? 'Default'}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.textChat')}</dt>
+								<dd class="mt-1">{yesNo(game.enableTextChat)}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.voiceChat')}</dt>
+								<dd class="mt-1">{yesNo(game.enableVoiceChat)}</dd>
+							</div>
+							{#if game.tags}
+								<div>
+									<dt class="text-muted-foreground">{t('server.overview.rust.tags')}</dt>
+									<dd class="mt-1">{game.tags.split(',').join(', ')}</dd>
+								</div>
+							{/if}
+						{/if}
+						{#if dragonwilds}
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.beaconPort')}</dt>
+								<dd class="mt-1 font-mono text-xs">{game.beacon_port ?? '—'}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.worldName')}</dt>
+								<dd class="mt-1 truncate" title={game.DefaultWorldName}>
+									{game.DefaultWorldName ?? '—'}
+								</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.rust.name')}</dt>
+								<dd class="mt-1 truncate" title={game.ServerName}>
+									{game.ServerName ?? server.name}
+								</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.platforms')}</dt>
+								<dd class="mt-1">{game.PlatformPolicy ?? 'Crossplay'}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.password')}</dt>
+								<dd class="mt-1">{yesNo(game.has_password)}</dd>
+							</div>
+							<div>
+								<dt class="text-muted-foreground">{t('server.overview.game.owner')}</dt>
+								<dd class="mt-1" class:text-destructive={game.has_owner !== 'true'}>
+									{game.has_owner === 'true'
+										? t('server.overview.game.ownerSet')
+										: t('server.overview.game.ownerMissing')}
+								</dd>
+							</div>
+						{/if}
 						{#if server.kind === 'minecraft_java'}
 							<div>
 								<dt class="text-muted-foreground">{t('server.overview.memoryLimit')}</dt>
@@ -283,11 +353,19 @@
 		</div>
 
 		<div class="space-y-6">
-			{#if rust}
+			{#if rust || enshrouded || dragonwilds}
 				<Card.Root>
 					<Card.Header>
 						<Card.Title>{t('server.overview.rust.connectTitle')}</Card.Title>
-						<Card.Description>{t('server.overview.rust.connectHint')}</Card.Description>
+						<Card.Description>
+							{rust
+								? t('server.overview.rust.connectHint')
+								: enshrouded
+									? t('server.overview.game.connectEnshrouded', { name: game.name ?? server.name })
+									: t('server.overview.game.connectDragonwilds', {
+											world: game.DefaultWorldName ?? server.name
+										})}
+						</Card.Description>
 					</Card.Header>
 					<Card.Content>
 						<button
@@ -308,8 +386,8 @@
 			{#if rust && server.permissions.includes('CONSOLE')}
 				<RustHealthCard serverId={server.id} />
 			{/if}
-			{#if rust && canConfigure}
-				<RustUpdatesCard {server} />
+			{#if isSteam(server.kind) && canConfigure}
+				<SteamUpdatesCard {server} />
 			{/if}
 			{#if minecraft}
 				<Card.Root>

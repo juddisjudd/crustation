@@ -73,10 +73,19 @@ export function relativeTime(date: Date | null) {
 	return '—';
 }
 
-const KNOWN_KINDS = ['minecraft_java', 'minecraft_bedrock', 'rust'];
+const KNOWN_KINDS = ['minecraft_java', 'minecraft_bedrock', 'rust', 'enshrouded', 'dragonwilds'];
 
 export function kindLabel(kind: string) {
 	return KNOWN_KINDS.includes(kind) ? t(`common.server.kind.${kind}` as MessageKey) : kind;
 }
 
 export const isMinecraft = (kind: string) => kind.startsWith('minecraft_');
+
+/** Installed and updated through SteamCMD. */
+export const isSteam = (kind: string) => ['rust', 'enshrouded', 'dragonwilds'].includes(kind);
+
+/** Enshrouded and Dragonwilds read no commands, from their console or anywhere else. */
+export const takesCommands = (kind: string) => !['enshrouded', 'dragonwilds'].includes(kind);
+
+/** The games whose players page is built from what the console says. */
+export const countsFromConsole = (kind: string) => ['enshrouded', 'dragonwilds'].includes(kind);

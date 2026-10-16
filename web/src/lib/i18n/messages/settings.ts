@@ -35,6 +35,16 @@ export const settings = {
 		otherDescription: "Port settings follow the server's port.",
 		otherEmpty: 'Nothing else is set.'
 	},
+	game: {
+		enshrouded:
+			"Enshrouded reads enshrouded_server.json when it starts and rewrites it while it runs, so change it while the server is stopped. Clear a field to go back to the game's own default.",
+		dragonwilds:
+			'Dragonwilds reads DedicatedServer.ini when it starts and rewrites it while it runs, so change it while the server is stopped. PvP and difficulty belong to the world, and the owner sets them in the game.',
+		locked: 'Stop the server to change these. The game rewrites its settings file while it runs.',
+		missing:
+			'The game writes its settings file the first time it starts; anything set here is written now and kept.',
+		otherTitle: 'Other keys in the file'
+	},
 	tags: {
 		groups: {
 			wipe: 'Wipe',

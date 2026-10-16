@@ -4,6 +4,7 @@ mod neoforge;
 mod paper;
 mod purpur;
 mod rust;
+mod steam;
 mod vanilla;
 
 use std::collections::HashMap;
@@ -23,9 +24,11 @@ pub struct Info {
     pub summary: &'static str,
     pub default_port: u16,
     pub needs_java: bool,
+    /// Settings the server cannot start without, which the form asks for up front.
+    pub required: &'static [&'static str],
 }
 
-pub const ALL: [Info; 7] = [
+pub const ALL: [Info; 9] = [
     Info {
         id: "vanilla",
         name: "Vanilla",
@@ -33,6 +36,7 @@ pub const ALL: [Info; 7] = [
         summary: "Mojang's own server, with no plugins or mods.",
         default_port: 25565,
         needs_java: true,
+        required: &[],
     },
     Info {
         id: "paper",
@@ -41,6 +45,7 @@ pub const ALL: [Info; 7] = [
         summary: "Faster vanilla that runs Bukkit and Spigot plugins.",
         default_port: 25565,
         needs_java: true,
+        required: &[],
     },
     Info {
         id: "purpur",
@@ -49,6 +54,7 @@ pub const ALL: [Info; 7] = [
         summary: "Paper with more of the game exposed as settings.",
         default_port: 25565,
         needs_java: true,
+        required: &[],
     },
     Info {
         id: "fabric",
@@ -57,6 +63,7 @@ pub const ALL: [Info; 7] = [
         summary: "Light mod loader. The launcher fetches the rest on first start.",
         default_port: 25565,
         needs_java: true,
+        required: &[],
     },
     Info {
         id: "neoforge",
@@ -65,6 +72,7 @@ pub const ALL: [Info; 7] = [
         summary: "Mod loader for Forge-style mods. Installs itself on creation.",
         default_port: 25565,
         needs_java: true,
+        required: &[],
     },
     Info {
         id: "bedrock",
@@ -73,6 +81,7 @@ pub const ALL: [Info; 7] = [
         summary: "Mojang's dedicated server for phones, consoles and Windows.",
         default_port: 19132,
         needs_java: false,
+        required: &[],
     },
     Info {
         id: "rust",
@@ -81,6 +90,25 @@ pub const ALL: [Info; 7] = [
         summary: "Facepunch's survival game. Installed through SteamCMD, around 10 GB.",
         default_port: 28015,
         needs_java: false,
+        required: &[],
+    },
+    Info {
+        id: "enshrouded",
+        name: "Enshrouded",
+        kind: crate::enshrouded::KIND,
+        summary: "Keen's survival game for up to 16. Windows only, so Linux runs it under Wine. Around 8 GB.",
+        default_port: 15637,
+        needs_java: false,
+        required: &[],
+    },
+    Info {
+        id: "dragonwilds",
+        name: "RuneScape: Dragonwilds",
+        kind: crate::dragonwilds::KIND,
+        summary: "Jagex's survival game for up to 6. Needs the owner's Player ID. Around 5 GB.",
+        default_port: 7777,
+        needs_java: false,
+        required: &["OwnerId"],
     },
 ];
 
@@ -172,6 +200,7 @@ impl Catalogue {
             "bedrock" => bedrock::versions(http).await?,
             // Branches, not numbers, so there is nothing to sort.
             "rust" => return Ok(rust::versions()),
+            "enshrouded" | "dragonwilds" => return Ok(steam::versions()),
             other => bail!("no provider called '{other}'"),
         };
         sort_newest_first(&mut versions);
@@ -196,6 +225,8 @@ pub async fn resolve(http: &reqwest::Client, provider: &str, version: &str) -> R
         "neoforge" => neoforge::resolve(http, version).await,
         "bedrock" => bedrock::resolve(http, version).await,
         "rust" => rust::resolve(version),
+        "enshrouded" => steam::resolve(crate::enshrouded::KIND, version),
+        "dragonwilds" => steam::resolve(crate::dragonwilds::KIND, version),
         other => bail!("no provider called '{other}'"),
     }
 }

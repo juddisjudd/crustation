@@ -6,7 +6,8 @@ export type ServerPermission =
 export type ServerState =
 	'stopped' | 'starting' | 'running' | 'stopping' | 'crashed' | 'installing';
 
-export type ServerKind = 'minecraft_java' | 'minecraft_bedrock' | 'rust' | string;
+export type ServerKind =
+	'minecraft_java' | 'minecraft_bedrock' | 'rust' | 'enshrouded' | 'dragonwilds' | string;
 
 export interface User {
 	id: string;
@@ -70,6 +71,8 @@ export interface ServerSettings {
 	convars?: Record<string, string> | null;
 	/** Rust only: the plugin framework installed, if any. */
 	framework?: 'oxide' | 'carbon' | null;
+	/** Enshrouded and Dragonwilds: what their settings file says, passwords left out. */
+	game?: Record<string, string> | null;
 	java: {
 		binary: string | null;
 		min_memory_mb: number;

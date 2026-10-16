@@ -37,7 +37,8 @@ export const server = {
 		names: {
 			game: 'Game',
 			query: 'Query',
-			rust_plus: 'Rust+'
+			rust_plus: 'Rust+',
+			beacon: 'World settings beacon'
 		},
 		states: {
 			open: 'Open',
@@ -84,6 +85,7 @@ export const server = {
 		started: 'Updating {name}',
 		startedRunning:
 			'Players get a countdown in chat, then the server stops, updates and starts again.',
+		startedSilent: 'The server stops now, updates and starts again.',
 		failed: 'Could not start the update'
 	},
 	actions: 'Server actions',
@@ -138,6 +140,24 @@ export const server = {
 			},
 			connectTitle: 'Connect',
 			connectHint: 'In Rust, press F1 and enter this. The server has to be running.'
+		},
+		game: {
+			listName: 'Name in the list',
+			slots: 'Player slots',
+			preset: 'Preset',
+			textChat: 'Text chat',
+			voiceChat: 'Voice chat',
+			beaconPort: 'Beacon port',
+			worldName: 'World name',
+			platforms: 'Who can join',
+			password: 'World password',
+			owner: 'Owner',
+			ownerSet: 'Set',
+			ownerMissing: 'Missing, so the server will not start',
+			connectEnshrouded:
+				"Find {name} in the game's server list, or add this address as a Steam favourite. Players join with a role's password.",
+			connectDragonwilds:
+				'In the game, open Worlds, then Public, and search for {world}. Case matters. Players on the same network use Direct with this address.'
 		}
 	},
 	motd: {
@@ -192,6 +212,7 @@ export const server = {
 		command: 'Console command',
 		placeholder: 'Type a command, for example: say Hello',
 		placeholderStopped: 'Start the server to send commands',
+		readOnly: 'This game reads no commands, so its console is for reading only.',
 		send: 'Send command',
 		historyError: 'Could not load the console history',
 		sendError: 'Command not sent',

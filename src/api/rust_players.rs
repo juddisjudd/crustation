@@ -28,7 +28,6 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/rust/chat", get(chat))
         .route("/{id}/rust/health", get(health))
         .route("/{id}/rust/wipe", post(wipe))
-        .route("/{id}/rust/build", get(build).post(update))
 }
 
 async fn load_rust(state: &AppState, id: Uuid) -> Result<ServerRow, ApiError> {
@@ -593,70 +592,6 @@ async fn wipe(
     )
     .await;
     Ok(OkJson(json!({ "deleted": deleted, "seed": seed })))
-}
-
-/// The build installed against the newest on its branch, asking Steam if the answer is stale.
-async fn build(
-    identity: Identity,
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> ApiResult<impl IntoResponse> {
-    identity
-        .require_server(&state.db, id, ServerPerm::Config)
-        .await?;
-    let row = load_rust(&state, id).await?;
-    let directory = PathBuf::from(&row.directory);
-    let branch = row.provider_version.clone().unwrap_or_default();
-    let build = match crate::rust_updates::check(&state, &directory, &branch).await {
-        Ok(build) => build,
-        Err(error) => {
-            tracing::debug!(%error, "could not ask Steam for the current Rust build");
-            crate::rust_updates::known(&directory, &branch)
-        }
-    };
-    Ok(OkJson(json!(build)))
-}
-
-#[derive(Deserialize)]
-struct UpdateRequest {
-    /// How long players get to finish up, in seconds.
-    #[serde(default)]
-    warn: u64,
-}
-
-async fn update(
-    identity: Identity,
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-    Json(body): Json<UpdateRequest>,
-) -> ApiResult<impl IntoResponse> {
-    identity
-        .require_server(&state.db, id, ServerPerm::Config)
-        .await?;
-    let row = load_rust(&state, id).await?;
-    let runtime = state.supervisor.runtime(id).await;
-    if runtime.installing || runtime.updating {
-        return Err(ApiError::conflict(
-            "This server is already being installed or updated.",
-        ));
-    }
-    let warn = body.warn.min(30 * 60);
-    crate::rust_updates::spawn_update(
-        state.clone(),
-        id,
-        PathBuf::from(&row.directory),
-        row.provider_version.clone().unwrap_or_default(),
-        warn,
-    );
-    super::audit(
-        &state,
-        Some(&identity.user),
-        Some(id),
-        "updated the server from Steam",
-        None,
-    )
-    .await;
-    Ok(OkJson(json!({ "started": true, "warn": warn })))
 }
 
 #[cfg(test)]

@@ -86,20 +86,6 @@ export const wipeRust = (serverId: string, kind: RustWipe, newSeed: boolean) =>
 		new_seed: newSeed
 	});
 
-export interface RustBuild {
-	branch: string;
-	installed: number | null;
-	latest: number | null;
-	update_available: boolean;
-}
-
-export const rustBuild = (serverId: string) =>
-	api.get<RustBuild>(`/servers/${serverId}/rust/build`);
-
-/** `warn` is how many seconds players get, counted down in chat, before a running server stops. */
-export const updateRust = (serverId: string, warn: number) =>
-	api.post(`/servers/${serverId}/rust/build`, { warn });
-
 export type RustConvarType = 'bool' | 'int' | 'float' | 'string' | 'vector';
 
 export interface RustConvar {

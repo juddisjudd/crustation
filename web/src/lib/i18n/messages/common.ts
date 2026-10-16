@@ -36,7 +36,9 @@ export const common = {
 		kind: {
 			minecraft_java: 'Minecraft Java',
 			minecraft_bedrock: 'Minecraft Bedrock',
-			rust: 'Rust'
+			rust: 'Rust',
+			enshrouded: 'Enshrouded',
+			dragonwilds: 'RuneScape: Dragonwilds'
 		},
 		action: {
 			start: 'Start',

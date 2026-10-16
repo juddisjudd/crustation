@@ -20,6 +20,8 @@ export interface ServerProperties {
 	exists: boolean;
 	settings: ServerProperty[];
 	other: OtherProperty[];
+	/** The game rewrites its file while it runs, so changes are taken only while it is stopped. */
+	stopped_only?: boolean;
 }
 
 export const readProperties = (serverId: string) =>

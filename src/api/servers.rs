@@ -50,6 +50,8 @@ pub fn routes() -> Router<AppState> {
         .merge(crate::api::rust_mods::routes())
         .merge(crate::api::rust_moderation::routes())
         .merge(crate::api::schedules::routes())
+        .merge(crate::api::steam::routes())
+        .merge(crate::api::enshrouded::routes())
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -101,12 +103,14 @@ pub async fn server_json(
         true => crate::rust_game::masked(&row.command),
         false => row.command.clone(),
     };
-    let update_available = rust
-        && crate::rust_updates::known(
+    let update_available = crate::steam_games::is_steam(&row.kind)
+        && crate::steam_updates::known(
+            &row.kind,
             std::path::Path::new(&row.directory),
             row.provider_version.as_deref().unwrap_or_default(),
         )
         .update_available;
+    let game = game_details(row).await;
     // What the game was told, for the overview. Null for kinds with no such thing.
     let convars = rust.then(|| {
         crate::rust_game::visible_convars(&row.command)
@@ -138,6 +142,7 @@ pub async fn server_json(
             "command": command,
             "convars": convars,
             "framework": framework,
+            "game": game,
             "java": {
                 "binary": row.java_binary,
                 "min_memory_mb": row.min_memory_mb,
@@ -399,8 +404,8 @@ fn checked_properties(
                 ));
             }
         };
-        // A Rust setting left empty is not set, which is what the form means by it.
-        if kind == crate::rust_game::KIND && raw.trim().is_empty() {
+        // A Steam game's setting left empty is not set, which is what the form means by it.
+        if crate::steam_games::is_steam(kind) && raw.trim().is_empty() {
             continue;
         }
         let checked =
@@ -541,6 +546,22 @@ async fn create(
     }
 
     let settings = checked_properties(&kind, body.properties)?;
+    let required = providers::ALL
+        .iter()
+        .filter(|info| info.kind == kind)
+        .flat_map(|info| info.required.iter());
+    for key in required {
+        if !settings
+            .iter()
+            .any(|(set, value)| set == key && !value.is_empty())
+        {
+            let label = properties::known(&kind, key).map_or(*key, |entry| entry.label);
+            return Err(ApiError::field(
+                format!("properties.{key}"),
+                format!("{label} is needed before the server can start."),
+            ));
+        }
+    }
 
     let port = body.port.unwrap_or_else(|| default_port(&kind));
     if !(1..=65535).contains(&port) {
@@ -551,6 +572,12 @@ async fn create(
         return Err(ApiError::field(
             "port",
             "Rust uses the two ports above this one as well, so pick one below 65534.",
+        ));
+    }
+    if kind == crate::dragonwilds::KIND && crate::dragonwilds::beacon_port(port) > 65535 {
+        return Err(ApiError::field(
+            "port",
+            "Dragonwilds also takes the port 1111 above this one, so pick one below 64425.",
         ));
     }
 
@@ -575,9 +602,10 @@ async fn create(
         "minecraft_java" => "logs/latest.log",
         _ => "",
     };
-    // Rust says goodbye to `quit`, which is also what saves the map.
+    // Rust says goodbye to `quit`, which is also what saves the map; the games that read nothing get Ctrl+C.
     let stop_command = match kind.as_str() {
         crate::rust_game::KIND => "quit",
+        kind if !crate::steam_games::takes_commands(kind) => "",
         _ => "stop",
     };
     let now = Utc::now().to_rfc3339();
@@ -615,6 +643,7 @@ async fn create(
             kind,
             directory,
             source,
+            host: host.clone(),
             port,
             java_binary: body.java_binary,
             min_memory_mb,
@@ -642,6 +671,65 @@ async fn create(
     Ok(Created(json!({ "id": id })))
 }
 
+/// What the overview shows of a game's own settings file, passwords left out.
+async fn game_details(row: &ServerRow) -> Option<BTreeMap<String, String>> {
+    let directory = std::path::Path::new(&row.directory);
+    let mut out = BTreeMap::new();
+    match row.kind.as_str() {
+        crate::enshrouded::KIND => {
+            let config = crate::enshrouded::load(directory).await.ok().flatten()?;
+            for key in [
+                "name",
+                "slotCount",
+                "gameSettingsPreset",
+                "enableTextChat",
+                "enableVoiceChat",
+                "tags",
+            ] {
+                if let Some(value) = crate::enshrouded::shown(&config, key) {
+                    out.insert(key.to_string(), value);
+                }
+            }
+        }
+        crate::dragonwilds::KIND => {
+            let ini = crate::dragonwilds::load(directory).await.ok().flatten();
+            let section = crate::dragonwilds::SECTION;
+            for key in ["ServerName", "DefaultWorldName", "PlatformPolicy"] {
+                if let Some(value) = ini.as_ref().and_then(|ini| ini.get(section, key)) {
+                    out.insert(key.to_string(), value);
+                }
+            }
+            let set = |key| {
+                ini.as_ref()
+                    .and_then(|ini| ini.get(section, key))
+                    .is_some_and(|value| !value.is_empty())
+            };
+            out.insert("has_owner".into(), set("OwnerId").to_string());
+            out.insert("has_password".into(), set("WorldPassword").to_string());
+            if let Some(beacon) = crate::dragonwilds::beacon_in(&row.command) {
+                out.insert("beacon_port".into(), beacon.to_string());
+            }
+        }
+        _ => return None,
+    }
+    Some(out)
+}
+
+/// Enshrouded names its port in its own file, so a new port on the row goes there too.
+async fn move_enshrouded_port(directory: &str, port: i64) -> Result<(), ApiError> {
+    let directory = std::path::Path::new(directory);
+    let Some(mut config) = crate::enshrouded::load(directory)
+        .await
+        .map_err(ApiError::Internal)?
+    else {
+        return Ok(());
+    };
+    crate::enshrouded::set(&mut config, "queryPort", &port.to_string());
+    crate::enshrouded::save(directory, &config)
+        .await
+        .map_err(ApiError::Internal)
+}
+
 fn checked_kind(kind: &str) -> Result<String, ApiError> {
     match kind {
         "minecraft_java" | "minecraft_bedrock" => Ok(kind.to_string()),
@@ -653,6 +741,8 @@ fn default_port(kind: &str) -> i64 {
     match kind {
         "minecraft_bedrock" => 19132,
         crate::rust_game::KIND => crate::rust_game::DEFAULT_PORT,
+        crate::enshrouded::KIND => crate::enshrouded::DEFAULT_PORT,
+        crate::dragonwilds::KIND => crate::dragonwilds::DEFAULT_PORT,
         _ => 25565,
     }
 }
@@ -895,11 +985,18 @@ async fn update(
     let log_path = body.log_path.unwrap_or(row.log_path);
     let executable = body.executable.unwrap_or(row.executable);
     let command = body.command.unwrap_or(row.command);
-    // The command names the three ports, so they follow the one on the row.
-    let command = match row.kind == crate::rust_game::KIND && port != row.port {
-        true => crate::rust_game::with_port(&command, port).unwrap_or(command),
-        false => command,
+    // The command names the ports, so they follow the one on the row.
+    let command = match row.kind.as_str() {
+        _ if port == row.port => command,
+        crate::rust_game::KIND => crate::rust_game::with_port(&command, port).unwrap_or(command),
+        crate::dragonwilds::KIND => {
+            crate::dragonwilds::with_port(&command, port).unwrap_or(command)
+        }
+        _ => command,
     };
+    if row.kind == crate::enshrouded::KIND && port != row.port {
+        move_enshrouded_port(&row.directory, port).await?;
+    }
     let java_binary = body.java_binary.or(row.java_binary);
     let min_memory_mb = body.min_memory_mb.unwrap_or(row.min_memory_mb);
     let max_memory_mb = body.max_memory_mb.unwrap_or(row.max_memory_mb);

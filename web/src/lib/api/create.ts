@@ -8,6 +8,8 @@ export interface Provider {
 	summary: string;
 	default_port: number;
 	needs_java: boolean;
+	/** Settings the server cannot start without, asked for up front. */
+	required: string[];
 }
 
 export interface ProviderVersion {

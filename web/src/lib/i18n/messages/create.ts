@@ -23,6 +23,7 @@ export const create = {
 		versionsFailed: 'Could not load the versions for {provider}.',
 		showUnstable: 'Show snapshots and pre-releases',
 		showUnstableRust: 'Show staging and test branches',
+		publicBranch: "Installs Steam's public branch, which every player is on.",
 		noVersions: 'No versions to choose from.'
 	},
 	import: {
@@ -51,6 +52,10 @@ export const create = {
 		name: 'Name',
 		namePlaceholder: 'Survival',
 		port: 'Port',
+		portRust: 'RCON and the server list take the two ports above it.',
+		portEnshrouded: 'UDP. The game and the server list share it.',
+		portDragonwilds:
+			'UDP, with the world settings beacon on {port}. Publish both on the same numbers.',
 		host: 'Bind address',
 		hostHint: '0.0.0.0 answers on every network on this host.',
 		minMemory: 'Least memory (MB)',

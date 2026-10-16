@@ -1060,6 +1060,8 @@ pub fn catalogue(kind: &str) -> &'static [Known] {
     match kind {
         "minecraft_bedrock" => BEDROCK,
         crate::rust_game::KIND => RUST,
+        crate::enshrouded::KIND => crate::enshrouded::CATALOGUE,
+        crate::dragonwilds::KIND => crate::dragonwilds::CATALOGUE,
         _ => JAVA,
     }
 }
@@ -1104,8 +1106,12 @@ pub fn check_raw(key: &str, value: &str) -> std::result::Result<String, String> 
 /// wants it written.
 pub fn check(entry: &Known, value: &str) -> std::result::Result<String, String> {
     let value = value.trim();
-    if entry.key == "server.tags" {
-        return crate::rust_game::check_tags(value);
+    match entry.key {
+        "server.tags" => return crate::rust_game::check_tags(value),
+        "tags" => return crate::enshrouded::check_tags(value),
+        "OwnerId" => return crate::dragonwilds::check_owner(value),
+        "DefaultWorldName" => return crate::dragonwilds::check_world(value),
+        _ => {}
     }
     match entry.kind {
         Kind::Flag => match value {
@@ -1128,8 +1134,11 @@ pub fn check(entry: &Known, value: &str) -> std::result::Result<String, String> 
             true => Ok(value.to_string()),
             false => Err(format!("Choose one of: {}.", options.join(", "))),
         },
-        // The writer escapes anything awkward, so only length is worth refusing.
         Kind::Text if value.chars().count() > 512 => Err("That is too long.".into()),
+        // An INI file cannot escape a line break, so no format gets one.
+        Kind::Text if value.chars().any(char::is_control) => {
+            Err("A value has to stay on one line.".into())
+        }
         Kind::Text => Ok(value.to_string()),
     }
 }

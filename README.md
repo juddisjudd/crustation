@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  Run your Minecraft and Rust servers from a web page.<br>
+  Run your Minecraft, Rust, Enshrouded and Dragonwilds servers from a web page.<br>
   One binary, one container, one SQLite file.
 </p>
 
@@ -48,6 +48,7 @@ Crab, Rust, shells. The name wrote itself.
      -p 8080:8080 \
      -p 25565:25565 -p 19132:19132/udp \
      -p 28015:28015/udp -p 28017:28017/udp -p 28083:28083 \
+     -p 15637:15637/udp -p 7777:7777/udp -p 8888:8888/udp \
      -v /srv/crustation/config:/config \
      -v /srv/crustation/servers:/servers \
      -v /srv/crustation/backups:/backups \
@@ -154,6 +155,31 @@ Crab, Rust, shells. The name wrote itself.
 - **A quiet console.** What Rust prints on every start is hidden behind a chip, and commands go
   over websocket RCON on the loopback, so the panel's own requests never clutter it.
 
+### Enshrouded
+
+- **Create a server** through SteamCMD with the slots, the chat switches, the browser tags, the
+  difficulty preset and every one of the game's own settings, each with its range. Keen ships the
+  server for Windows only; the image runs it under Wine, so nothing extra is needed.
+- **Roles.** The four roles players join under, each with a password the panel picks, and an
+  editor for their names, passwords, permissions and reserved slots.
+- **Players and bans.** Who is on and who has been, read from the console, and the ban list with
+  a button to lift each one.
+- **Updates and stops.** The panel notices when Steam has a newer build and updates on a button
+  or a schedule. A stop is Ctrl+C, which saves the world first.
+
+### RuneScape: Dragonwilds
+
+- **Create a server** through SteamCMD with the owner's Player ID, the world's name and password,
+  the admin password and which platforms may join. The panel names the world after the server and
+  generates the admin password unless you choose one.
+- **Players.** Who is on and who has been, read from the console, with each player's Epic id.
+- **A safe console.** The world password is taken out of every line the server prints it in.
+- **Updates.** The same Steam check and update as the other Steam games, since a client only joins
+  a server on its own build.
+
+Neither game reads console commands, so their console is for reading, and their settings are
+edited while the server is stopped, because each rewrites its file while it runs.
+
 ### Not there yet
 
 Mods from Modrinth, datapacks, webhooks and alerts, and backups.
@@ -174,6 +200,9 @@ same thing and also publishes 25500 to 25600 as spare ports for more servers.
 | 28015 | UDP      | Rust, the game                                   |
 | 28017 | UDP      | Rust, the Steam query: the game port plus 2      |
 | 28083 | TCP      | Rust, the Rust+ phone app: the game port plus 68 |
+| 15637 | UDP      | Enshrouded, the game and the server list         |
+| 7777  | UDP      | Dragonwilds, the game                            |
+| 8888  | UDP      | Dragonwilds, the world settings beacon           |
 
 Worth knowing:
 
@@ -186,8 +215,12 @@ Worth knowing:
   server gets its shutdown timeout, 60 seconds unless you changed it, before it is killed. Docker
   only waits 10 seconds by default, which is why the examples raise it to 120. Keep it above the
   longest shutdown timeout you set.
-- **Rust needs an amd64 host**, because SteamCMD only exists for x86. A server wants around 10 GB
-  of disk and 8 GB of memory or more.
+- **Rust, Enshrouded and Dragonwilds need an amd64 host**, because SteamCMD only exists for x86,
+  and so does the Wine that runs Enshrouded. A Rust server wants around 10 GB of disk and 8 GB of
+  memory or more. Enshrouded takes around 8 GB of disk, and Keen asks for 16 GB of memory.
+  Dragonwilds takes around 5 GB of disk, and Jagex asks for 2 GB of memory plus 1 GB a player.
+- **Dragonwilds' ports have to match.** Publish its game and beacon ports on the same numbers
+  inside and out, or players are sent back to the title screen.
 
 ### Unraid
 

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod bridge;
+pub mod enshrouded;
 pub mod files;
 pub mod items;
 pub mod macros;
@@ -18,6 +19,7 @@ pub mod rust_mods;
 pub mod rust_players;
 pub mod schedules;
 pub mod servers;
+pub mod steam;
 pub mod users;
 pub mod ws;
 
