@@ -199,6 +199,9 @@ Docker and Unraid supported from the start. `crafty-feature-reference.md` is the
 - Two first-time SteamCMD installs at once no longer trip over each other fetching SteamCMD, and
   every install asks Steam for fresh app info first, which stops Dragonwilds' "Missing
   configuration" failure.
+- `crustation reset-password <username>` lets someone who cannot sign in back in from a shell: a
+  new password, printed once, with their sessions ended and the sign-in cooldown lifted. It runs
+  beside the live panel, since SQLite lets the two share the database.
 
 ## Next
 

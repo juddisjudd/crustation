@@ -15,6 +15,7 @@ mod mcp;
 mod nbt;
 mod network;
 mod packs;
+mod password_reset;
 mod perms;
 mod ping;
 mod properties;
@@ -41,7 +42,7 @@ mod wine;
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -51,6 +52,19 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let config_dir = std::env::var("CRUSTATION_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("config"));
+
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        None => {}
+        Some("reset-password") => return password_reset::run(&config_dir, args.next()).await,
+        Some(other) => {
+            bail!("unknown command '{other}'. Try: crustation reset-password <username>")
+        }
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_env("CRUSTATION_LOG")
@@ -59,9 +73,6 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    let config_dir = std::env::var("CRUSTATION_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("config"));
     std::fs::create_dir_all(&config_dir)
         .with_context(|| format!("creating {}", config_dir.display()))?;
 

@@ -9,7 +9,7 @@ records what Crafty Controller does, as a feature checklist only.
 ```
 crustation (single binary)
 ├── http          axum: REST under /api/v1, WebSocket at /ws, MCP at /mcp, SPA from the web build
-├── auth          argon2 password hashes, signed session cookie, API keys, roles and permissions
+├── auth          argon2 password hashes, signed session cookie, API keys, roles and permissions, reset-password from a shell
 ├── store         SQLite via sqlx, migrations in /migrations
 ├── supervisor    one task per game server: spawn, stdin, stdout ring buffer, crash detection
 ├── stats         host and per-process sampling, server ping, history for charts

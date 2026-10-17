@@ -138,7 +138,11 @@ impl Config {
     }
 
     pub fn database_path(&self) -> PathBuf {
-        self.paths.config.join("crustation.db")
+        Self::database_in(&self.paths.config)
+    }
+
+    pub fn database_in(config_dir: &Path) -> PathBuf {
+        config_dir.join("crustation.db")
     }
 
     pub fn server_dir(&self, id: &uuid::Uuid) -> PathBuf {

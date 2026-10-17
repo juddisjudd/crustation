@@ -253,7 +253,22 @@ The panel creates an administrator the first time it starts.
 
 Set `CRUSTATION_ADMIN_USERNAME` and `CRUSTATION_ADMIN_PASSWORD` to choose your own. Otherwise
 Crustation generates a password and writes it to `config/first-login.txt`. Change it after signing
-in, then delete that file.
+in, then delete that file. Both are read on the first start only, so changing them later does
+nothing.
+
+### Locked out
+
+`crustation reset-password <username>` gives that user a new password and prints it. It also signs
+them out everywhere, enables the account if it was disabled, and lifts the five-minute cooldown
+that five failed sign-ins start. In Docker or on Unraid, run it in the container while the panel
+is up:
+
+```bash
+docker exec -u crustation crustation crustation reset-password admin
+```
+
+`-u crustation` runs it as the panel's own user, so the database stays owned by that user. The
+second `crustation` is the container's name; on Unraid it is `Crustation`.
 
 ## Configuration
 
