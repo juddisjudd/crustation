@@ -388,7 +388,7 @@
 		>
 			<section class="rounded-lg border bg-card p-6 xl:col-span-2">
 				<h2 class="text-base font-semibold tracking-tight">{t('create.game.title')}</h2>
-				<div class="mt-4 grid max-w-3xl gap-4 sm:grid-cols-2">
+				<div class="mt-4 grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
 					{#each games as entry (entry.id)}
 						<button
 							type="button"
